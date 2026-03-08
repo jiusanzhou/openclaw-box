@@ -46,9 +46,48 @@ struct StepResult {
     logs: Vec<String>,
 }
 
+fn get_enriched_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let system_path = std::env::var("PATH").unwrap_or_default();
+    
+    // Collect extra paths: nvm, homebrew, usr/local, cargo
+    let mut extra: Vec<String> = vec![];
+    
+    // nvm: scan for installed node versions
+    let nvm_dir = format!("{home}/.nvm/versions/node");
+    if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
+        let mut versions: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .map(|e| format!("{}/bin", e.path().display()))
+            .collect();
+        // Sort descending so latest version comes first
+        versions.sort_by(|a, b| b.cmp(a));
+        extra.extend(versions);
+    }
+    
+    // fnm
+    let fnm_dir = format!("{home}/.fnm/current/bin");
+    if std::path::Path::new(&fnm_dir).exists() {
+        extra.push(fnm_dir);
+    }
+    
+    // Common paths
+    extra.extend([
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        format!("{home}/.cargo/bin"),
+    ]);
+    
+    let mut parts: Vec<&str> = extra.iter().map(|s| s.as_str()).collect();
+    parts.push(&system_path);
+    parts.join(":")
+}
+
 fn run_cmd(cmd: &str, args: &[&str]) -> Result<String, String> {
     Command::new(cmd)
         .env("HOME", std::env::var("HOME").unwrap_or_default())
+        .env("PATH", get_enriched_path())
         .args(args)
         .output()
         .map_err(|e| format!("执行命令失败: {} - {}", cmd, e))
