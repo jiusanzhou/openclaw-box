@@ -787,6 +787,13 @@ fn get_logs(state: State<AppState>) -> Vec<String> {
 
 // --- Management Panel Commands ---
 
+#[derive(Serialize, Deserialize)]
+struct AgentInfo {
+    id: String,
+    name: Option<String>,
+    workspace: Option<String>,
+}
+
 #[derive(Serialize)]
 struct GatewayStatus {
     running: bool,
@@ -1005,6 +1012,43 @@ fn run_openclaw_update(npm_registry: String, version: String) -> StepResult {
     }
 }
 
+#[tauri::command]
+fn list_agents() -> Vec<AgentInfo> {
+    let output = Command::new("openclaw")
+        .args(["config", "get", "agents.list"])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            serde_json::from_str::<Vec<AgentInfo>>(&stdout).unwrap_or_default()
+        }
+        _ => vec![],
+    }
+}
+
+#[tauri::command]
+fn get_dashboard_url() -> String {
+    let output = Command::new("openclaw").args(["status"]).output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            for line in stdout.lines() {
+                if line.contains("Dashboard") || line.contains("http") {
+                    if let Some(start) = line.find("http") {
+                        let url_part = &line[start..];
+                        let end = url_part
+                            .find(|c: char| c.is_whitespace() || c == '│')
+                            .unwrap_or(url_part.len());
+                        return url_part[..end].trim().to_string();
+                    }
+                }
+            }
+            "http://localhost:18789/".to_string()
+        }
+        _ => "http://localhost:18789/".to_string(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1031,6 +1075,8 @@ pub fn run() {
             write_openclaw_config,
             check_openclaw_update,
             run_openclaw_update,
+            list_agents,
+            get_dashboard_url,
         ])
         .run(tauri::generate_context!())
         .expect("启动应用失败");

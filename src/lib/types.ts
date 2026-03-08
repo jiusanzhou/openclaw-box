@@ -57,3 +57,9 @@ export interface UpdateInfo {
   latest_version: string;
   has_update: boolean;
 }
+
+export interface AgentInfo {
+  id: string;
+  name: string | null;
+  workspace: string | null;
+}
