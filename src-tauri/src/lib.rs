@@ -48,6 +48,7 @@ struct StepResult {
 
 fn run_cmd(cmd: &str, args: &[&str]) -> Result<String, String> {
     Command::new(cmd)
+        .env("HOME", std::env::var("HOME").unwrap_or_default())
         .args(args)
         .output()
         .map_err(|e| format!("执行命令失败: {} - {}", cmd, e))
@@ -645,7 +646,7 @@ fn install_step_start(config: InstallConfig, state: State<AppState>) -> StepResu
     logs.push("启动 OpenClaw Gateway...".to_string());
 
     // Try to start the gateway
-    let start_result = Command::new("openclaw")
+    let start_result = Command::new(&find_openclaw())
         .args(["gateway", "start"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -810,8 +811,55 @@ struct UpdateInfo {
     has_update: bool,
 }
 
+
+fn find_openclaw() -> String {
+    // Try common paths for openclaw
+    let candidates = [
+        // Direct PATH lookup
+        "openclaw",
+        // npm global installs
+        "/usr/local/bin/openclaw",
+        "/opt/homebrew/bin/openclaw",
+    ];
+
+    // Also check if there's a node/nvm path
+    if let Ok(home) = std::env::var("HOME") {
+        let nvm_paths = [
+            format!("{home}/.nvm/versions/node/v22.22.0/bin/openclaw"),
+            format!("{home}/.nvm/versions/node/v20.19.2/bin/openclaw"),
+        ];
+        for p in &nvm_paths {
+            if std::path::Path::new(p).exists() {
+                return p.clone();
+            }
+        }
+    }
+
+    // Try `which openclaw`
+    if let Ok(output) = Command::new("which").arg("openclaw").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+
+    // Also try npx
+    if let Ok(output) = Command::new("npx").args(["which", "openclaw"]).output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+
+    "openclaw".to_string()
+}
+
 fn run_openclaw_cmd(cmd: &str, subcmd: &str) -> StepResult {
-    match Command::new("openclaw").args([cmd, subcmd]).output() {
+    match Command::new(&find_openclaw()).args([cmd, subcmd]).output() {
         Ok(o) => StepResult {
             success: o.status.success(),
             message: String::from_utf8_lossy(&o.stdout).trim().to_string(),
@@ -852,7 +900,7 @@ fn get_gateway_status() -> GatewayStatus {
 #[tauri::command]
 fn gateway_start() -> StepResult {
     // Use spawn so the gateway runs as a daemon
-    match Command::new("openclaw")
+    match Command::new(&find_openclaw())
         .args(["gateway", "start"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -886,7 +934,7 @@ fn gateway_restart() -> StepResult {
         // Try to continue even if stop fails
     }
     std::thread::sleep(Duration::from_secs(1));
-    match Command::new("openclaw")
+    match Command::new(&find_openclaw())
         .args(["gateway", "start"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1014,7 +1062,7 @@ fn run_openclaw_update(npm_registry: String, version: String) -> StepResult {
 
 #[tauri::command]
 fn list_agents() -> Vec<AgentInfo> {
-    let output = Command::new("openclaw")
+    let output = Command::new(&find_openclaw())
         .args(["config", "get", "agents.list"])
         .output();
     match output {
@@ -1028,7 +1076,7 @@ fn list_agents() -> Vec<AgentInfo> {
 
 #[tauri::command]
 fn get_dashboard_url() -> String {
-    let output = Command::new("openclaw").args(["status"]).output();
+    let output = Command::new(&find_openclaw()).args(["status"]).output();
     match output {
         Ok(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
