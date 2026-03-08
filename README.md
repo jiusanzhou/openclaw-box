@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/icon.png" width="128" height="128" alt="OpenClaw 安装助手" />
+  <img src="docs/icon.png" width="128" height="128" alt="OpenClaw Box" />
 </p>
 
-<h1 align="center">OpenClaw 安装助手</h1>
+<h1 align="center">OpenClaw Box</h1>
 
 <p align="center">
-  帮助中国用户一键安装配置 <a href="https://github.com/openclaw/openclaw">OpenClaw</a> 的桌面工具
+  安装、配置、管理你的 <a href="https://github.com/openclaw/openclaw">OpenClaw</a> 智能助手
 </p>
 
 <p align="center">
@@ -39,7 +39,7 @@
 
 ## 🚀 使用
 
-1. 打开安装助手
+1. 打开 OpenClaw Box
 2. **欢迎** — 自动检测系统环境（OS、Node.js、网络）
 3. **配置** — 选择 LLM 服务商、填写 API Key、选择接入渠道
 4. **安装** — 一键完成所有安装步骤

@@ -1,7 +1,7 @@
 {
-  "productName": "OpenClaw 安装助手",
+  "productName": "OpenClaw Box",
   "version": "0.1.0",
-  "identifier": "im.zoe.openclaw-installer",
+  "identifier": "im.zoe.openclaw-box",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "OpenClaw 安装助手",
+        "title": "OpenClaw Box",
         "width": 800,
         "height": 600,
         "resizable": false,

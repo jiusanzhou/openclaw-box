@@ -1,10 +1,10 @@
 [package]
-name = "openclaw-installer"
+name = "openclaw-box"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "openclaw_installer_lib"
+name = "openclaw_box_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

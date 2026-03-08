@@ -45,10 +45,10 @@ export function Welcome({ remoteConfig, onNext }: WelcomeProps) {
     <div className="p-8 h-full flex flex-col">
       <div className="flex-1">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">
-          欢迎使用 OpenClaw 安装助手
+          欢迎使用 OpenClaw Box
         </h2>
         <p className="text-gray-500 mb-8">
-          本工具将帮助您快速部署 OpenClaw 智能助手。
+          安装、配置、管理你的 OpenClaw 智能助手。
         </p>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">

@@ -48,9 +48,9 @@ import DEFAULT_CONFIG from "../../config/remote.json";
 // Remote config URLs — tries in order, falls back to baked-in default
 const CONFIG_URLS = [
   // GitHub raw (main branch) — you push JSON, users get updates instantly
-  "https://raw.githubusercontent.com/jiusanzhou/openclaw-installer/main/config/remote.json",
+  "https://raw.githubusercontent.com/jiusanzhou/openclaw-box/main/config/remote.json",
   // CDN mirror (jsdelivr wraps GitHub, better for China)
-  "https://cdn.jsdelivr.net/gh/jiusanzhou/openclaw-installer@main/config/remote.json",
+  "https://cdn.jsdelivr.net/gh/jiusanzhou/openclaw-box@main/config/remote.json",
 ];
 
 export async function fetchRemoteConfig(): Promise<RemoteConfig> {

@@ -43,7 +43,7 @@ export function StepWizard({ remoteConfig }: StepWizardProps) {
       <div className="w-56 bg-indigo-900 text-white p-6 flex flex-col">
         <div className="mb-8">
           <h1 className="text-lg font-bold">OpenClaw</h1>
-          <p className="text-indigo-300 text-sm">安装助手</p>
+          <p className="text-indigo-300 text-sm">Box</p>
         </div>
         <nav className="space-y-2 flex-1">
           {STEPS.map((step, i) => (

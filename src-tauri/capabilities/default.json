@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "OpenClaw 安装助手默认权限",
+  "description": "OpenClaw Box 默认权限",
   "windows": ["main"],
   "permissions": [
     "core:default",

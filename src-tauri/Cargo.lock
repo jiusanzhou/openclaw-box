@@ -1999,7 +1999,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "openclaw-installer"
+name = "openclaw-box"
 version = "0.1.0"
 dependencies = [
  "open",
