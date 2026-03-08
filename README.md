@@ -1,79 +1,86 @@
-# OpenClaw 安装助手
+<p align="center">
+  <img src="docs/icon.png" width="128" height="128" alt="OpenClaw 安装助手" />
+</p>
 
-OpenClaw 一键安装桌面应用，帮助中文用户快速部署 OpenClaw 智能助手。
+<h1 align="center">OpenClaw 安装助手</h1>
 
-## 功能特性
+<p align="center">
+  帮助中国用户一键安装配置 <a href="https://github.com/openclaw/openclaw">OpenClaw</a> 的桌面工具
+</p>
 
-- 自动检测系统环境（操作系统、Node.js、网络连接）
-- 支持多家国内 LLM 服务商配置
-- 一键安装部署
-- 支持 Web 界面和 Telegram Bot 两种接入渠道
+<p align="center">
+  <img src="https://img.shields.io/badge/Tauri-v2-blue?logo=tauri" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react" />
+  <img src="https://img.shields.io/badge/Rust-2021-orange?logo=rust" />
+  <img src="https://img.shields.io/badge/License-MIT-green" />
+</p>
 
-## 支持的 LLM 服务商
+---
 
-| 服务商 | 接口地址 |
-|--------|---------|
-| 硅基流动 (SiliconFlow) | `https://api.siliconflow.cn/v1` |
-| 智谱AI (Zhipu) | `https://open.bigmodel.cn/api/paas/v4` |
-| 通义千问 (Tongyi) | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| DeepSeek | `https://api.deepseek.com/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
-| 自定义 | 用户自行填写 |
+## ✨ 功能
 
-## 技术栈
+- 🖥️ **一键安装** — 自动检测环境、下载 Node.js、安装 OpenClaw、生成配置、启动服务
+- 🇨🇳 **中国优化** — npm/Node.js 使用国内镜像源，告别网络问题
+- 🤖 **多模型支持** — DeepSeek、硅基流动、智谱AI、通义千问、OpenRouter 等
+- 💬 **多渠道接入** — Web 界面、Telegram、飞书、QQ
+- 🔄 **远程配置** — 模型列表、渠道配置、镜像源均从远程加载，无需更新客户端
+- 🪟 **跨平台** — Windows（原生 + WSL2）、macOS、Linux
 
-- [Tauri v2](https://v2.tauri.app/) — 桌面应用框架
-- [React 19](https://react.dev/) — 前端框架
-- [TypeScript](https://www.typescriptlang.org/) — 类型安全
-- [Vite](https://vitejs.dev/) — 构建工具
-- [TailwindCSS v3](https://tailwindcss.com/) — 样式框架
+## 📦 安装
 
-## 开发
+从 [Releases](https://github.com/jiusanzhou/openclaw-installer/releases) 下载对应平台安装包：
+
+| 平台 | 文件 |
+|------|------|
+| Windows | `.exe` / `.msi` |
+| macOS (Apple Silicon) | `_aarch64.dmg` |
+| macOS (Intel) | `_x64.dmg` |
+| Linux | `.deb` / `.AppImage` |
+
+## 🚀 使用
+
+1. 打开安装助手
+2. **欢迎** — 自动检测系统环境（OS、Node.js、网络）
+3. **配置** — 选择 LLM 服务商、填写 API Key、选择接入渠道
+4. **安装** — 一键完成所有安装步骤
+
+## 🔧 远程配置
+
+所有可配置项存放在 [`config/remote.json`](config/remote.json)，修改后 push 即生效：
+
+- 镜像源地址
+- Node.js / OpenClaw 版本
+- LLM 服务商及模型列表
+- 接入渠道及配置字段
+- 公告信息
+
+## 🛠️ 开发
+
+```bash
+# 安装依赖
+pnpm install
+
+# 启动开发环境
+pnpm tauri dev
+
+# 构建发布版本
+pnpm tauri build
+```
 
 ### 前置要求
 
-- [Node.js](https://nodejs.org/) 18+
-- [Rust](https://www.rust-lang.org/) 1.70+
-- [Tauri CLI](https://v2.tauri.app/start/prerequisites/)
+- Node.js 18+
+- Rust 1.70+
+- pnpm
 
-### 安装依赖
+## 📐 技术栈
 
-```bash
-npm install
-```
+- [Tauri v2](https://v2.tauri.app/) — 桌面应用框架
+- [React 19](https://react.dev/) — 前端
+- [TypeScript](https://www.typescriptlang.org/) — 类型安全
+- [TailwindCSS](https://tailwindcss.com/) — 样式
+- [Rust](https://www.rust-lang.org/) — 后端
 
-### 启动开发环境
-
-```bash
-npm run tauri dev
-```
-
-### 构建发布版本
-
-```bash
-npm run tauri build
-```
-
-## 项目结构
-
-```
-openclaw-installer/
-├── src/                    # 前端源码
-│   ├── components/         # React 组件
-│   │   ├── steps/          # 安装步骤页面
-│   │   └── ui/             # 通用 UI 组件
-│   ├── lib/                # 类型定义
-│   └── styles/             # 样式文件
-├── src-tauri/              # Rust 后端
-│   ├── src/                # Rust 源码
-│   ├── capabilities/       # Tauri 权限配置
-│   ├── Cargo.toml          # Rust 依赖
-│   └── tauri.conf.json     # Tauri 应用配置
-├── index.html              # HTML 入口
-├── package.json            # Node.js 依赖
-└── vite.config.ts          # Vite 配置
-```
-
-## 许可证
+## License
 
 MIT
