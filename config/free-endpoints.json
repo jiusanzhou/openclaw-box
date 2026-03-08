@@ -10,34 +10,69 @@
       "base_url": "https://openrouter.ai/api/v1",
       "requires_key": false,
       "models": [
-        { "id": "deepseek/deepseek-chat-v3-0324:free", "name": "DeepSeek V3", "free": true },
-        { "id": "qwen/qwen3-coder:free", "name": "Qwen3 Coder", "free": true },
-        { "id": "qwen/qwen3-4b:free", "name": "Qwen3 4B", "free": true },
-        { "id": "z-ai/glm-4.5-air:free", "name": "GLM-4.5 Air", "free": true },
-        { "id": "mistralai/mistral-small-3.1-24b-instruct:free", "name": "Mistral Small 3.1", "free": true },
-        { "id": "openai/gpt-oss-120b:free", "name": "GPT-OSS 120B", "free": true },
-        { "id": "google/gemma-3-12b-it:free", "name": "Gemma 3 12B", "free": true },
-        { "id": "nvidia/nemotron-3-nano-30b-a3b:free", "name": "Nemotron 3 Nano 30B", "free": true }
+        {
+          "id": "deepseek/deepseek-chat-v3-0324:free",
+          "name": "DeepSeek V3",
+          "free": true
+        },
+        {
+          "id": "qwen/qwen3-coder:free",
+          "name": "Qwen3 Coder",
+          "free": true
+        },
+        {
+          "id": "qwen/qwen3-4b:free",
+          "name": "Qwen3 4B",
+          "free": true
+        },
+        {
+          "id": "z-ai/glm-4.5-air:free",
+          "name": "GLM-4.5 Air",
+          "free": true
+        },
+        {
+          "id": "mistralai/mistral-small-3.1-24b-instruct:free",
+          "name": "Mistral Small 3.1",
+          "free": true
+        },
+        {
+          "id": "openai/gpt-oss-120b:free",
+          "name": "GPT-OSS 120B",
+          "free": true
+        },
+        {
+          "id": "google/gemma-3-12b-it:free",
+          "name": "Gemma 3 12B",
+          "free": true
+        },
+        {
+          "id": "nvidia/nemotron-3-nano-30b-a3b:free",
+          "name": "Nemotron 3 Nano 30B",
+          "free": true
+        }
       ],
       "default_model": "deepseek/deepseek-chat-v3-0324:free"
     },
     {
       "id": "opencode-zen-free",
       "name": "OpenCode Zen 免费",
-      "description": "OpenCode 官方提供，多个免费编程模型",
+      "description": "OpenCode 官方提供，无需注册，免费模型直接可用",
       "base_url": "https://opencode.ai/api",
-      "requires_key": true,
+      "requires_key": false,
       "register_url": "https://opencode.ai/zen",
-      "env_key": "OPENCODE_API_KEY",
       "models": [
-        { "id": "kimi-k2.5-free", "name": "Kimi K2.5", "free": true },
-        { "id": "glm-5-free", "name": "GLM-5", "free": true },
-        { "id": "minimax-m2.1-free", "name": "MiniMax M2.1", "free": true },
-        { "id": "grok-code", "name": "Grok Code Fast 1", "free": true },
-        { "id": "trinity-large-preview-free", "name": "Trinity Large Preview", "free": true },
-        { "id": "qwen3-coder-next-free", "name": "Qwen3 Coder Next", "free": true }
+        {
+          "id": "minimax-m2.5-free",
+          "name": "MiniMax M2.5",
+          "free": true
+        },
+        {
+          "id": "trinity-large-preview-free",
+          "name": "Trinity Large Preview",
+          "free": true
+        }
       ],
-      "default_model": "kimi-k2.5-free"
+      "default_model": "minimax-m2.5-free"
     },
     {
       "id": "kilocode-free",
@@ -48,11 +83,31 @@
       "register_url": "https://kilo.ai/",
       "env_key": "KILOCODE_API_KEY",
       "models": [
-        { "id": "z-ai/glm-5:free", "name": "GLM-5", "free": true },
-        { "id": "minimax/minimax-m2.5:free", "name": "MiniMax M2.5", "free": true },
-        { "id": "arcee-ai/trinity-large-preview:free", "name": "Trinity Large Preview", "free": true },
-        { "id": "nvidia/nemotron-3-nano-30b-a3b:free", "name": "Nemotron 3 Nano 30B", "free": true },
-        { "id": "qwen/qwen3-coder:free", "name": "Qwen3 Coder", "free": true }
+        {
+          "id": "z-ai/glm-5:free",
+          "name": "GLM-5",
+          "free": true
+        },
+        {
+          "id": "minimax/minimax-m2.5:free",
+          "name": "MiniMax M2.5",
+          "free": true
+        },
+        {
+          "id": "arcee-ai/trinity-large-preview:free",
+          "name": "Trinity Large Preview",
+          "free": true
+        },
+        {
+          "id": "nvidia/nemotron-3-nano-30b-a3b:free",
+          "name": "Nemotron 3 Nano 30B",
+          "free": true
+        },
+        {
+          "id": "qwen/qwen3-coder:free",
+          "name": "Qwen3 Coder",
+          "free": true
+        }
       ],
       "default_model": "z-ai/glm-5:free"
     },
@@ -65,11 +120,31 @@
       "register_url": "https://github.com/marketplace/models",
       "env_key": "GITHUB_TOKEN",
       "models": [
-        { "id": "gpt-4o-mini", "name": "GPT-4o Mini", "free": true },
-        { "id": "Phi-4-multimodal-instruct", "name": "Phi-4 Multimodal", "free": true },
-        { "id": "DeepSeek-R1", "name": "DeepSeek R1", "free": true },
-        { "id": "Llama-4-Maverick-17B-128E-Instruct-FP8", "name": "Llama 4 Maverick", "free": true },
-        { "id": "Mistral-Small-24B-Instruct-2501", "name": "Mistral Small 24B", "free": true }
+        {
+          "id": "gpt-4o-mini",
+          "name": "GPT-4o Mini",
+          "free": true
+        },
+        {
+          "id": "Phi-4-multimodal-instruct",
+          "name": "Phi-4 Multimodal",
+          "free": true
+        },
+        {
+          "id": "DeepSeek-R1",
+          "name": "DeepSeek R1",
+          "free": true
+        },
+        {
+          "id": "Llama-4-Maverick-17B-128E-Instruct-FP8",
+          "name": "Llama 4 Maverick",
+          "free": true
+        },
+        {
+          "id": "Mistral-Small-24B-Instruct-2501",
+          "name": "Mistral Small 24B",
+          "free": true
+        }
       ],
       "default_model": "gpt-4o-mini"
     },
@@ -82,8 +157,16 @@
       "register_url": "https://open.bigmodel.cn/",
       "env_key": "ZHIPU_API_KEY",
       "models": [
-        { "id": "glm-4.5-flash", "name": "GLM-4.5 Flash", "free": true },
-        { "id": "glm-4.7-flash", "name": "GLM-4.7 Flash", "free": true }
+        {
+          "id": "glm-4.5-flash",
+          "name": "GLM-4.5 Flash",
+          "free": true
+        },
+        {
+          "id": "glm-4.7-flash",
+          "name": "GLM-4.7 Flash",
+          "free": true
+        }
       ],
       "default_model": "glm-4.7-flash"
     },
@@ -96,9 +179,21 @@
       "register_url": "https://modelscope.cn/",
       "env_key": "MODELSCOPE_API_KEY",
       "models": [
-        { "id": "Qwen/Qwen3-235B-A22B-Thinking-2507", "name": "Qwen3 235B Thinking", "free": true },
-        { "id": "Qwen/Qwen3-Coder-30B-A3B-Instruct", "name": "Qwen3 Coder 30B", "free": true },
-        { "id": "Qwen/Qwen3-30B-A3B-Instruct-2507", "name": "Qwen3 30B", "free": true }
+        {
+          "id": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+          "name": "Qwen3 235B Thinking",
+          "free": true
+        },
+        {
+          "id": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+          "name": "Qwen3 Coder 30B",
+          "free": true
+        },
+        {
+          "id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+          "name": "Qwen3 30B",
+          "free": true
+        }
       ],
       "default_model": "Qwen/Qwen3-Coder-30B-A3B-Instruct"
     },
@@ -111,9 +206,21 @@
       "register_url": "https://cloud.infini-ai.com/",
       "env_key": "IFLOW_API_KEY",
       "models": [
-        { "id": "deepseek-v3", "name": "DeepSeek V3", "free": true },
-        { "id": "kimi-k2", "name": "Kimi K2", "free": true },
-        { "id": "qwen3-max-preview", "name": "Qwen3 Max Preview", "free": true }
+        {
+          "id": "deepseek-v3",
+          "name": "DeepSeek V3",
+          "free": true
+        },
+        {
+          "id": "kimi-k2",
+          "name": "Kimi K2",
+          "free": true
+        },
+        {
+          "id": "qwen3-max-preview",
+          "name": "Qwen3 Max Preview",
+          "free": true
+        }
       ],
       "default_model": "deepseek-v3"
     }
