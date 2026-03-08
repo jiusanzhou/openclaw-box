@@ -1060,8 +1060,28 @@ fn run_openclaw_update(npm_registry: String, version: String) -> StepResult {
     }
 }
 
+
+fn read_openclaw_json_config() -> Option<serde_json::Value> {
+    let home = std::env::var("HOME").ok()?;
+    let config_path = format!("{home}/.openclaw/openclaw.json");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
 #[tauri::command]
 fn list_agents() -> Vec<AgentInfo> {
+    // Fast path: read config file directly instead of spawning CLI (~0ms vs ~5s)
+    if let Some(config) = read_openclaw_json_config() {
+        if let Some(agents) = config.get("agents").and_then(|a| a.get("list")).and_then(|l| l.as_array()) {
+            return agents.iter().filter_map(|a| {
+                let id = a.get("id")?.as_str()?.to_string();
+                let name = a.get("name").and_then(|n| n.as_str()).map(String::from);
+                let workspace = a.get("workspace").and_then(|w| w.as_str()).map(String::from);
+                Some(AgentInfo { id, name, workspace })
+            }).collect();
+        }
+    }
+    // Fallback to CLI
     let output = Command::new(&find_openclaw())
         .args(["config", "get", "agents.list"])
         .output();
@@ -1076,6 +1096,24 @@ fn list_agents() -> Vec<AgentInfo> {
 
 #[tauri::command]
 fn get_dashboard_url() -> String {
+    // Fast path: read config file directly instead of spawning CLI (~0ms vs ~6s)
+    if let Some(config) = read_openclaw_json_config() {
+        let port = config.get("gateway")
+            .and_then(|g| g.get("port"))
+            .and_then(|p| p.as_u64())
+            .unwrap_or(18789);
+        let base_path = config.get("gateway")
+            .and_then(|g| g.get("controlUi"))
+            .and_then(|c| c.get("basePath"))
+            .and_then(|b| b.as_str())
+            .unwrap_or("");
+        let path = if base_path.is_empty() { "/".to_string() } else {
+            let p = base_path.trim_matches('/');
+            format!("/{p}/")
+        };
+        return format!("http://127.0.0.1:{port}{path}");
+    }
+    // Fallback to CLI
     let output = Command::new(&find_openclaw()).args(["status"]).output();
     match output {
         Ok(o) if o.status.success() => {
