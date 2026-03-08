@@ -48,7 +48,8 @@ export function Welcome({ remoteConfig, onNext }: WelcomeProps) {
           欢迎使用 OpenClaw Box
         </h2>
         <p className="text-gray-500 mb-8">
-          安装、配置、管理你的 OpenClaw 智能助手。
+          安装、配置、管理你的 OpenClaw
+          智能助手。支持多家国内免费模型，注册即用。
         </p>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">

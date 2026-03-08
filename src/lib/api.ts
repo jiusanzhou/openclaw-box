@@ -1,6 +1,7 @@
 export interface ModelOption {
   id: string;
   name: string;
+  free?: boolean;
 }
 
 export interface ProviderConfig {
@@ -11,6 +12,8 @@ export interface ProviderConfig {
   default_model: string;
   register_url?: string;
   help_doc?: string;
+  free_tier?: string;
+  badge?: string;
 }
 
 export interface ChannelField {

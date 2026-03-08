@@ -7,68 +7,79 @@
   "openclaw_version": "latest",
   "providers": [
     {
+      "id": "zhipu",
+      "name": "智谱AI",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "models": [
+        { "id": "glm-4-flash", "name": "GLM-4 Flash", "free": true },
+        { "id": "glm-4-plus", "name": "GLM-4 Plus", "free": false }
+      ],
+      "default_model": "glm-4-flash",
+      "register_url": "https://open.bigmodel.cn/",
+      "free_tier": "GLM-4-Flash 完全免费，注册即用",
+      "badge": "推荐新手"
+    },
+    {
+      "id": "siliconflow",
+      "name": "硅基流动",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "models": [
+        { "id": "Qwen/Qwen2.5-7B-Instruct", "name": "Qwen2.5 7B", "free": true },
+        { "id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek V3", "free": false },
+        { "id": "Qwen/Qwen3-8B", "name": "Qwen3 8B", "free": false },
+        { "id": "deepseek-ai/DeepSeek-R1", "name": "DeepSeek R1", "free": false }
+      ],
+      "default_model": "Qwen/Qwen2.5-7B-Instruct",
+      "register_url": "https://cloud.siliconflow.cn/",
+      "free_tier": "注册送 14 元，部分模型永久免费",
+      "badge": "免费额度"
+    },
+    {
       "id": "deepseek",
       "name": "DeepSeek",
       "base_url": "https://api.deepseek.com/v1",
       "models": [
-        { "id": "deepseek-chat", "name": "DeepSeek Chat" },
-        { "id": "deepseek-reasoner", "name": "DeepSeek Reasoner" }
+        { "id": "deepseek-chat", "name": "DeepSeek Chat", "free": false },
+        { "id": "deepseek-reasoner", "name": "DeepSeek Reasoner", "free": false }
       ],
       "default_model": "deepseek-chat",
-      "register_url": "https://platform.deepseek.com/"
-    },
-    {
-      "id": "siliconflow",
-      "name": "硅基流动 (SiliconFlow)",
-      "base_url": "https://api.siliconflow.cn/v1",
-      "models": [
-        { "id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek V3" },
-        { "id": "Qwen/Qwen3-8B", "name": "Qwen3 8B" },
-        { "id": "deepseek-ai/DeepSeek-R1", "name": "DeepSeek R1" }
-      ],
-      "default_model": "deepseek-ai/DeepSeek-V3",
-      "register_url": "https://cloud.siliconflow.cn/"
-    },
-    {
-      "id": "zhipu",
-      "name": "智谱AI (Zhipu)",
-      "base_url": "https://open.bigmodel.cn/api/paas/v4",
-      "models": [
-        { "id": "glm-4-plus", "name": "GLM-4 Plus" },
-        { "id": "glm-4-flash", "name": "GLM-4 Flash (免费)" }
-      ],
-      "default_model": "glm-4-flash",
-      "register_url": "https://open.bigmodel.cn/"
+      "register_url": "https://platform.deepseek.com/",
+      "free_tier": "注册送 500 万 Token"
     },
     {
       "id": "tongyi",
-      "name": "通义千问 (Tongyi)",
+      "name": "通义千问",
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "models": [
-        { "id": "qwen-plus", "name": "Qwen Plus" },
-        { "id": "qwen-turbo", "name": "Qwen Turbo" }
+        { "id": "qwen-turbo", "name": "Qwen Turbo", "free": false },
+        { "id": "qwen-plus", "name": "Qwen Plus", "free": false }
       ],
-      "default_model": "qwen-plus",
-      "register_url": "https://dashscope.console.aliyun.com/"
+      "default_model": "qwen-turbo",
+      "register_url": "https://dashscope.console.aliyun.com/",
+      "free_tier": "新用户有免费额度"
     },
     {
       "id": "openrouter",
       "name": "OpenRouter",
       "base_url": "https://openrouter.ai/api/v1",
       "models": [
-        { "id": "anthropic/claude-sonnet-4", "name": "Claude Sonnet 4" },
-        { "id": "openai/gpt-4o", "name": "GPT-4o" },
-        { "id": "deepseek/deepseek-chat-v3-0324", "name": "DeepSeek V3" }
+        { "id": "deepseek/deepseek-chat-v3-0324:free", "name": "DeepSeek V3 (免费)", "free": true },
+        { "id": "qwen/qwen3-8b:free", "name": "Qwen3 8B (免费)", "free": true },
+        { "id": "anthropic/claude-sonnet-4", "name": "Claude Sonnet 4", "free": false },
+        { "id": "openai/gpt-4o", "name": "GPT-4o", "free": false }
       ],
-      "default_model": "anthropic/claude-sonnet-4",
-      "register_url": "https://openrouter.ai/"
+      "default_model": "deepseek/deepseek-chat-v3-0324:free",
+      "register_url": "https://openrouter.ai/",
+      "free_tier": "部分模型完全免费，无需付费",
+      "badge": "有免费模型"
     },
     {
       "id": "custom",
-      "name": "自定义 (Custom)",
+      "name": "自定义",
       "base_url": "",
       "models": [],
-      "default_model": ""
+      "default_model": "",
+      "help_doc": "填写任意 OpenAI 兼容接口地址"
     }
   ],
   "channels": [

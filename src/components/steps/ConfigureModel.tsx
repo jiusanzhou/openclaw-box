@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
@@ -33,6 +33,23 @@ export function ConfigureModel({
     (p) => p.id === config.provider,
   );
   const isCustom = config.provider === "custom";
+
+  const sortedModels = useMemo(() => {
+    if (!selectedProvider) return [];
+    return [...selectedProvider.models].sort((a, b) => {
+      const af = a.free ? 1 : 0;
+      const bf = b.free ? 1 : 0;
+      return bf - af;
+    });
+  }, [selectedProvider]);
+
+  const selectedModel = selectedProvider?.models.find(
+    (m) => m.id === config.model,
+  );
+  const allFree =
+    selectedProvider != null &&
+    selectedProvider.models.length > 0 &&
+    selectedProvider.models.every((m) => m.free);
 
   const hasApiKey = isCustom || config.apiKey.trim().length > 0;
   const hasCustomUrl = !isCustom || config.customBaseUrl.trim().length > 0;
@@ -106,22 +123,41 @@ export function ConfigureModel({
               <Select
                 label="模型"
                 value={config.model}
-                options={selectedProvider.models.map((m) => ({
+                options={sortedModels.map((m) => ({
                   id: m.id,
-                  name: m.name,
+                  name: m.free ? `${m.name}（免费）` : m.name,
                 }))}
                 onChange={(v) => onChange({ ...config, model: v })}
               />
             )
           )}
 
-          <Input
-            label="API Key"
-            type="password"
-            placeholder="请输入 API Key"
-            value={config.apiKey}
-            onChange={(e) => onChange({ ...config, apiKey: e.target.value })}
-          />
+          {!isCustom && selectedModel?.free && (
+            <div className="text-sm px-3 py-2 rounded-lg bg-green-50 text-green-700 border border-green-200">
+              当前选择的模型可免费使用
+            </div>
+          )}
+
+          {!isCustom && selectedProvider?.free_tier && (
+            <p className="text-xs text-gray-500">
+              {selectedProvider.free_tier}
+            </p>
+          )}
+
+          <div>
+            <Input
+              label="API Key"
+              type="password"
+              placeholder="请输入 API Key"
+              value={config.apiKey}
+              onChange={(e) => onChange({ ...config, apiKey: e.target.value })}
+            />
+            {!isCustom && allFree && (
+              <p className="mt-1 text-xs text-gray-500">
+                需要注册获取 API Key（免费）
+              </p>
+            )}
+          </div>
 
           {/* Test connection */}
           <div>
