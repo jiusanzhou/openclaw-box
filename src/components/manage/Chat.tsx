@@ -1,49 +1,88 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { GatewayStatus } from "../../lib/types";
 
-const GATEWAY_URL = "http://localhost:18789/";
+const GATEWAY_URLS = [
+  "http://localhost:18789/openclaw/",
+  "http://127.0.0.1:18789/openclaw/",
+  "http://localhost:18789/",
+  "http://127.0.0.1:18789/",
+];
 
 interface ChatProps {
   onNavigate: (page: string) => void;
 }
 
 export function Chat({ onNavigate }: ChatProps) {
+  const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const checkAvailability = useCallback(async () => {
+  const detectGatewayUrl = useCallback(async () => {
+    // First try getting URL from Rust backend
     try {
-      const resp = await fetch(GATEWAY_URL, { mode: "no-cors" });
-      // no-cors returns opaque response (status 0) on success
-      if (resp.status === 0 || resp.ok) {
-        setAvailable(true);
-      } else {
-        setAvailable(false);
+      const status: GatewayStatus = await invoke("get_gateway_status");
+      if (status.running && status.url) {
+        // Ensure URL ends with /openclaw/ path if not already
+        let url = status.url;
+        if (!url.endsWith("/")) url += "/";
+        // Try the status URL first, then with /openclaw/ appended
+        const candidates = [url, url + "openclaw/", ...GATEWAY_URLS];
+        for (const candidate of candidates) {
+          try {
+            const resp = await fetch(candidate, { mode: "no-cors" });
+            if (resp.status === 0 || resp.ok) {
+              setGatewayUrl(candidate);
+              setAvailable(true);
+              return;
+            }
+          } catch {
+            // try next
+          }
+        }
       }
     } catch {
-      setAvailable(false);
+      // backend call failed
     }
+
+    // Fallback: try common URLs
+    for (const url of GATEWAY_URLS) {
+      try {
+        const resp = await fetch(url, { mode: "no-cors" });
+        if (resp.status === 0 || resp.ok) {
+          setGatewayUrl(url);
+          setAvailable(true);
+          return;
+        }
+      } catch {
+        // try next
+      }
+    }
+
+    setAvailable(false);
   }, []);
 
   useEffect(() => {
-    checkAvailability();
-  }, [checkAvailability]);
+    detectGatewayUrl();
+  }, [detectGatewayUrl]);
 
   // Auto-retry every 3s when gateway is down
   useEffect(() => {
     if (available !== false) return;
-    const timer = setInterval(checkAvailability, 3000);
+    const timer = setInterval(detectGatewayUrl, 3000);
     return () => clearInterval(timer);
-  }, [available, checkAvailability]);
+  }, [available, detectGatewayUrl]);
 
   const reloadIframe = () => {
-    if (iframeRef.current) {
-      iframeRef.current.src = GATEWAY_URL;
+    if (iframeRef.current && gatewayUrl) {
+      iframeRef.current.src = gatewayUrl;
     }
   };
 
   const openInBrowser = () => {
-    invoke("open_url", { url: GATEWAY_URL });
+    if (gatewayUrl) {
+      invoke("open_url", { url: gatewayUrl });
+    }
   };
 
   if (available === null) {
@@ -54,7 +93,7 @@ export function Chat({ onNavigate }: ChatProps) {
     );
   }
 
-  if (!available) {
+  if (!available || !gatewayUrl) {
     return (
       <div className="flex-1 flex items-center justify-center h-full">
         <div className="text-center space-y-4">
@@ -95,7 +134,7 @@ export function Chat({ onNavigate }: ChatProps) {
       {/* Iframe */}
       <iframe
         ref={iframeRef}
-        src={GATEWAY_URL}
+        src={gatewayUrl}
         className="flex-1 w-full border-0"
         title="OpenClaw 对话"
       />
