@@ -57,6 +57,10 @@ export function Install({ config, remoteConfig, onBack }: InstallProps) {
       (p) => p.id === config.provider,
     );
     const isCustom = config.provider === "custom";
+    const isFreePublic = provider?.is_free_public === true;
+    const endpoint = isFreePublic
+      ? provider?.endpoints?.find((e) => e.id === config.selectedEndpoint)
+      : undefined;
     return {
       node_download_mirror: remoteConfig.mirrors.node_download,
       npm_registry: remoteConfig.mirrors.npm_registry,
@@ -64,9 +68,15 @@ export function Install({ config, remoteConfig, onBack }: InstallProps) {
       openclaw_version: remoteConfig.openclaw_version,
       provider_base_url: isCustom
         ? config.customBaseUrl
-        : (provider?.base_url || ""),
-      provider_name: isCustom ? "custom" : (provider?.name || ""),
-      api_key: config.apiKey,
+        : isFreePublic
+          ? (endpoint?.base_url || "")
+          : (provider?.base_url || ""),
+      provider_name: isCustom
+        ? "custom"
+        : isFreePublic
+          ? (endpoint?.name || provider?.name || "")
+          : (provider?.name || ""),
+      api_key: isFreePublic ? "" : config.apiKey,
       model: isCustom ? config.customModel : config.model,
       channel_type: config.channel,
       channel_config: config.channelFields,

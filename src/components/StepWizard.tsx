@@ -29,7 +29,13 @@ export function StepWizard({ remoteConfig }: StepWizardProps) {
     remoteConfig.channels[0]?.id ||
     "web";
   const defaultProvider = remoteConfig.providers[0]?.id || "deepseek";
-  const defaultModel = remoteConfig.providers[0]?.default_model || "";
+  const firstProvider = remoteConfig.providers[0];
+  const defaultEndpoint = firstProvider?.is_free_public
+    ? firstProvider.endpoints?.[0]?.id
+    : undefined;
+  const defaultModel = firstProvider?.is_free_public
+    ? firstProvider.endpoints?.[0]?.default_model || ""
+    : firstProvider?.default_model || "";
 
   const [config, setConfig] = useState<InstallerConfig>({
     provider: defaultProvider,
@@ -39,6 +45,7 @@ export function StepWizard({ remoteConfig }: StepWizardProps) {
     customModel: "",
     channel: defaultChannel,
     channelFields: {},
+    selectedEndpoint: defaultEndpoint,
   });
 
   const currentIndex = STEPS.findIndex((s) => s.id === currentStep);

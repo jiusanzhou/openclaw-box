@@ -4,7 +4,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import type { InstallerConfig, StepResult } from "../../lib/types";
-import type { RemoteConfig } from "../../lib/api";
+import type { RemoteConfig, FreeEndpoint } from "../../lib/api";
 
 interface ConfigureModelProps {
   config: InstallerConfig;
@@ -33,6 +33,14 @@ export function ConfigureModel({
     (p) => p.id === config.provider,
   );
   const isCustom = config.provider === "custom";
+  const isFreePublic = selectedProvider?.is_free_public === true;
+
+  const selectedEndpointConfig: FreeEndpoint | undefined = useMemo(() => {
+    if (!isFreePublic || !selectedProvider?.endpoints) return undefined;
+    return selectedProvider.endpoints.find(
+      (e) => e.id === config.selectedEndpoint,
+    );
+  }, [isFreePublic, selectedProvider, config.selectedEndpoint]);
 
   const sortedModels = useMemo(() => {
     if (!selectedProvider) return [];
@@ -51,10 +59,12 @@ export function ConfigureModel({
     selectedProvider.models.length > 0 &&
     selectedProvider.models.every((m) => m.free);
 
-  const hasApiKey = isCustom || config.apiKey.trim().length > 0;
+  const hasApiKey = isCustom || isFreePublic || config.apiKey.trim().length > 0;
   const hasCustomUrl = !isCustom || config.customBaseUrl.trim().length > 0;
   const hasCustomModel = !isCustom || config.customModel.trim().length > 0;
-  const canProceed = hasApiKey && hasCustomUrl && hasCustomModel;
+  const canProceed = isFreePublic
+    ? !!(config.selectedEndpoint && config.model)
+    : hasApiKey && hasCustomUrl && hasCustomModel;
 
   const baseUrl = isCustom
     ? config.customBaseUrl
@@ -81,7 +91,9 @@ export function ConfigureModel({
     <div className="p-8 h-full flex flex-col">
       <div className="flex-1 overflow-auto">
         <div className="flex items-baseline gap-3 mb-2">
-          <h2 className="text-2xl font-bold text-gray-900">配置模型</h2>
+          <h2 className="text-2xl font-bold text-gray-900">
+            {isFreePublic ? "选择端点" : "配置模型"}
+          </h2>
           <span className="text-sm text-gray-500">
             {selectedProvider?.name || "自定义"}
           </span>
@@ -94,9 +106,85 @@ export function ConfigureModel({
           </button>
         </div>
         <p className="text-gray-500 mb-8">
-          配置模型和 API Key 以连接服务商。
+          {isFreePublic
+            ? "选择一个免费公共端点和模型，即可开始使用。"
+            : "配置模型和 API Key 以连接服务商。"}
         </p>
 
+        {isFreePublic ? (
+          <div className="space-y-5 max-w-lg">
+            {/* Endpoint cards */}
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                端点
+              </label>
+              {selectedProvider?.endpoints?.map((endpoint) => {
+                const isActive = config.selectedEndpoint === endpoint.id;
+                return (
+                  <button
+                    key={endpoint.id}
+                    type="button"
+                    onClick={() =>
+                      onChange({
+                        ...config,
+                        selectedEndpoint: endpoint.id,
+                        model: endpoint.default_model,
+                      })
+                    }
+                    className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-200 hover:shadow-md ${
+                      isActive
+                        ? "border-indigo-500 bg-indigo-50"
+                        : "border-gray-200 bg-white hover:border-gray-300"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-semibold text-gray-900">
+                        {endpoint.name}
+                      </span>
+                      {isActive && (
+                        <div className="w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center">
+                          <svg
+                            className="w-3 h-3 text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={3}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {endpoint.models.map((m) => m.name).join(" · ")}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Model select from chosen endpoint */}
+            {selectedEndpointConfig && (
+              <Select
+                label="模型"
+                value={config.model}
+                options={selectedEndpointConfig.models.map((m) => ({
+                  id: m.id,
+                  name: m.free ? `${m.name}（免费）` : m.name,
+                }))}
+                onChange={(v) => onChange({ ...config, model: v })}
+              />
+            )}
+
+            <div className="text-sm px-3 py-2 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+              免费公共端点，可能有速率限制
+            </div>
+          </div>
+        ) : (
         <div className="space-y-5 max-w-lg">
           {isCustom ? (
             <>
@@ -186,6 +274,7 @@ export function ConfigureModel({
             )}
           </div>
         </div>
+        )}
       </div>
 
       <div className="flex justify-between pt-6">

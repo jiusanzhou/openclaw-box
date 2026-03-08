@@ -7,6 +7,40 @@
   "openclaw_version": "latest",
   "providers": [
     {
+      "id": "free-public",
+      "name": "免费体验",
+      "base_url": "",
+      "models": [],
+      "default_model": "",
+      "badge": "零配置",
+      "free_tier": "无需注册，无需 API Key，立即开始",
+      "is_free_public": true,
+      "endpoints": [
+        {
+          "id": "openrouter-free",
+          "name": "OpenRouter 免费",
+          "base_url": "https://openrouter.ai/api/v1",
+          "models": [
+            { "id": "deepseek/deepseek-chat-v3-0324:free", "name": "DeepSeek V3", "free": true },
+            { "id": "qwen/qwen3-8b:free", "name": "Qwen3 8B", "free": true },
+            { "id": "google/gemma-3-1b-it:free", "name": "Gemma 3 1B", "free": true }
+          ],
+          "default_model": "deepseek/deepseek-chat-v3-0324:free",
+          "requires_key": false
+        },
+        {
+          "id": "grok-free",
+          "name": "Grok 免费",
+          "base_url": "https://api.x.ai/v1",
+          "models": [
+            { "id": "grok-3-mini-fast", "name": "Grok 3 Mini Fast", "free": true }
+          ],
+          "default_model": "grok-3-mini-fast",
+          "requires_key": false
+        }
+      ]
+    },
+    {
       "id": "zhipu",
       "name": "智谱AI",
       "base_url": "https://open.bigmodel.cn/api/paas/v4",

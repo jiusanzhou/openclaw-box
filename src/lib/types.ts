@@ -8,6 +8,7 @@ export interface InstallerConfig {
   customModel: string;
   channel: string;
   channelFields: Record<string, string>;
+  selectedEndpoint?: string;
 }
 
 export interface SystemInfo {

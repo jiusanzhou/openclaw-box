@@ -26,25 +26,43 @@ export function ChooseProvider({
   onNext,
   onBack,
 }: ChooseProviderProps) {
+  const freePublicProvider = useMemo(
+    () => remoteConfig.providers.find((p) => p.is_free_public),
+    [remoteConfig.providers],
+  );
+
   const sortedProviders = useMemo(() => {
-    return [...remoteConfig.providers].sort(
-      (a: ProviderConfig, b: ProviderConfig) => {
+    return [...remoteConfig.providers]
+      .filter((p) => !p.is_free_public)
+      .sort((a: ProviderConfig, b: ProviderConfig) => {
         const aHas = a.badge ? 1 : 0;
         const bHas = b.badge ? 1 : 0;
         return bHas - aHas;
-      },
-    );
+      });
   }, [remoteConfig.providers]);
 
   const handleSelect = (providerId: string) => {
     const provider = remoteConfig.providers.find((p) => p.id === providerId);
-    onChange({
-      ...config,
-      provider: providerId,
-      model: provider?.default_model || "",
-      customBaseUrl: "",
-      customModel: "",
-    });
+    if (provider?.is_free_public) {
+      const firstEndpoint = provider.endpoints?.[0];
+      onChange({
+        ...config,
+        provider: providerId,
+        selectedEndpoint: firstEndpoint?.id || "",
+        model: firstEndpoint?.default_model || "",
+        customBaseUrl: "",
+        customModel: "",
+      });
+    } else {
+      onChange({
+        ...config,
+        provider: providerId,
+        selectedEndpoint: undefined,
+        model: provider?.default_model || "",
+        customBaseUrl: "",
+        customModel: "",
+      });
+    }
   };
 
   const openExternal = (url: string) => {
@@ -62,6 +80,63 @@ export function ChooseProvider({
         </p>
 
         <div className="grid grid-cols-2 gap-4 max-w-xl">
+          {freePublicProvider && (() => {
+            const isSelected = config.provider === freePublicProvider.id;
+            return (
+              <button
+                key={freePublicProvider.id}
+                type="button"
+                onClick={() => handleSelect(freePublicProvider.id)}
+                className={`col-span-2 relative text-left p-5 rounded-xl border-2 transition-all duration-200 hover:shadow-lg hover:scale-[1.01] ${
+                  isSelected
+                    ? "border-purple-400 bg-gradient-to-r from-purple-600 to-indigo-600"
+                    : "border-purple-200 bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 hover:border-purple-300 hover:shadow-purple-100"
+                }`}
+              >
+                {freePublicProvider.badge && !isSelected && (
+                  <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-300">
+                    {freePublicProvider.badge}
+                  </span>
+                )}
+
+                {isSelected && (
+                  <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-white flex items-center justify-center">
+                    <svg
+                      className="w-3 h-3 text-purple-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  </div>
+                )}
+
+                <div
+                  className={`text-lg font-bold mb-1 ${
+                    isSelected ? "text-white" : "text-gray-900"
+                  }`}
+                >
+                  🚀 免费体验
+                </div>
+                {freePublicProvider.free_tier && (
+                  <p
+                    className={`text-sm ${
+                      isSelected ? "text-purple-100" : "text-purple-600"
+                    }`}
+                  >
+                    {freePublicProvider.free_tier}
+                  </p>
+                )}
+              </button>
+            );
+          })()}
+
           {sortedProviders.map((provider) => {
             const isSelected = config.provider === provider.id;
             const isCustom = provider.id === "custom";

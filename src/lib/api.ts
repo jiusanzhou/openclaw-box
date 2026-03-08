@@ -4,6 +4,15 @@ export interface ModelOption {
   free?: boolean;
 }
 
+export interface FreeEndpoint {
+  id: string;
+  name: string;
+  base_url: string;
+  models: ModelOption[];
+  default_model: string;
+  requires_key: boolean;
+}
+
 export interface ProviderConfig {
   id: string;
   name: string;
@@ -14,6 +23,8 @@ export interface ProviderConfig {
   help_doc?: string;
   free_tier?: string;
   badge?: string;
+  is_free_public?: boolean;
+  endpoints?: FreeEndpoint[];
 }
 
 export interface ChannelField {
