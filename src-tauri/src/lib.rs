@@ -785,6 +785,226 @@ fn get_logs(state: State<AppState>) -> Vec<String> {
     state.logs.lock().unwrap().clone()
 }
 
+// --- Management Panel Commands ---
+
+#[derive(Serialize)]
+struct GatewayStatus {
+    running: bool,
+    version: Option<String>,
+    port: Option<u16>,
+    url: Option<String>,
+    pid: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    current_version: String,
+    latest_version: String,
+    has_update: bool,
+}
+
+fn run_openclaw_cmd(cmd: &str, subcmd: &str) -> StepResult {
+    match Command::new("openclaw").args([cmd, subcmd]).output() {
+        Ok(o) => StepResult {
+            success: o.status.success(),
+            message: String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            logs: vec![],
+        },
+        Err(e) => StepResult {
+            success: false,
+            message: e.to_string(),
+            logs: vec![],
+        },
+    }
+}
+
+#[tauri::command]
+fn get_gateway_status() -> GatewayStatus {
+    let version = run_cmd("openclaw", &["--version"]).ok();
+    let running = check_network("127.0.0.1", 18789);
+
+    // Try to detect PID from lsof
+    let pid = if running {
+        run_cmd("lsof", &["-ti", "tcp:18789"])
+            .ok()
+            .and_then(|s| s.lines().next().map(|l| l.trim().to_string()))
+            .and_then(|s| s.parse::<u32>().ok())
+    } else {
+        None
+    };
+
+    GatewayStatus {
+        running,
+        version,
+        port: Some(18789),
+        url: Some("http://localhost:18789".into()),
+        pid,
+    }
+}
+
+#[tauri::command]
+fn gateway_start() -> StepResult {
+    // Use spawn so the gateway runs as a daemon
+    match Command::new("openclaw")
+        .args(["gateway", "start"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(_) => {
+            std::thread::sleep(Duration::from_secs(2));
+            StepResult {
+                success: true,
+                message: "Gateway 启动命令已执行".to_string(),
+                logs: vec![],
+            }
+        }
+        Err(e) => StepResult {
+            success: false,
+            message: format!("启动失败: {}", e),
+            logs: vec![],
+        },
+    }
+}
+
+#[tauri::command]
+fn gateway_stop() -> StepResult {
+    run_openclaw_cmd("gateway", "stop")
+}
+
+#[tauri::command]
+fn gateway_restart() -> StepResult {
+    let stop = run_openclaw_cmd("gateway", "stop");
+    if !stop.success {
+        // Try to continue even if stop fails
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    match Command::new("openclaw")
+        .args(["gateway", "start"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(_) => {
+            std::thread::sleep(Duration::from_secs(2));
+            StepResult {
+                success: true,
+                message: "Gateway 已重启".to_string(),
+                logs: vec![],
+            }
+        }
+        Err(e) => StepResult {
+            success: false,
+            message: format!("重启失败: {}", e),
+            logs: vec![],
+        },
+    }
+}
+
+#[tauri::command]
+fn get_gateway_logs() -> Vec<String> {
+    let home = match get_home_dir() {
+        Ok(h) => h,
+        Err(_) => return vec!["无法确定主目录".to_string()],
+    };
+
+    // Try reading log file
+    let log_path = format!("{}/.openclaw/logs/gateway.log", home);
+    if let Ok(content) = std::fs::read_to_string(&log_path) {
+        let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        let start = if lines.len() > 200 { lines.len() - 200 } else { 0 };
+        return lines[start..].to_vec();
+    }
+
+    // Fallback: try openclaw gateway logs command
+    match run_cmd_combined("openclaw", &["gateway", "logs"]) {
+        Ok(output) => {
+            let lines: Vec<String> = output.lines().map(|l| l.to_string()).collect();
+            let start = if lines.len() > 200 { lines.len() - 200 } else { 0 };
+            lines[start..].to_vec()
+        }
+        Err(_) => vec!["无法获取日志".to_string()],
+    }
+}
+
+#[tauri::command]
+fn read_openclaw_config() -> Result<String, String> {
+    let home = get_home_dir()?;
+    let config_path = format!("{}/.openclaw/config.yaml", home);
+    std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("读取配置失败: {}", e))
+}
+
+#[tauri::command]
+fn write_openclaw_config(content: String) -> StepResult {
+    let home = match get_home_dir() {
+        Ok(h) => h,
+        Err(e) => return StepResult { success: false, message: e, logs: vec![] },
+    };
+    let config_path = format!("{}/.openclaw/config.yaml", home);
+    match std::fs::write(&config_path, &content) {
+        Ok(_) => StepResult {
+            success: true,
+            message: "配置已保存".to_string(),
+            logs: vec![],
+        },
+        Err(e) => StepResult {
+            success: false,
+            message: format!("写入配置失败: {}", e),
+            logs: vec![],
+        },
+    }
+}
+
+#[tauri::command]
+fn check_openclaw_update(npm_registry: String) -> UpdateInfo {
+    let current_version = run_cmd("openclaw", &["--version"])
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    let latest_version = run_cmd(
+        "npm",
+        &["view", "openclaw", "version", "--registry", &npm_registry],
+    )
+    .unwrap_or_else(|_| current_version.clone());
+
+    let has_update = current_version != "unknown"
+        && latest_version != current_version
+        && compare_versions(
+            latest_version.trim_start_matches('v'),
+            current_version.trim_start_matches('v'),
+        ) > 0;
+
+    UpdateInfo {
+        current_version,
+        latest_version,
+        has_update,
+    }
+}
+
+#[tauri::command]
+fn run_openclaw_update(npm_registry: String, version: String) -> StepResult {
+    let pkg = format!("openclaw@{}", version);
+    match run_cmd_combined("npm", &["install", "-g", &pkg, "--registry", &npm_registry]) {
+        Ok(output) => {
+            let success = run_cmd("openclaw", &["--version"]).is_ok();
+            StepResult {
+                success,
+                message: if success {
+                    format!("已更新到 {}", version)
+                } else {
+                    "更新命令执行完成但验证失败".to_string()
+                },
+                logs: output.lines().map(|l| l.to_string()).collect(),
+            }
+        }
+        Err(e) => StepResult {
+            success: false,
+            message: format!("更新失败: {}", e),
+            logs: vec![],
+        },
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -802,6 +1022,15 @@ pub fn run() {
             test_api_connection,
             open_url,
             get_logs,
+            get_gateway_status,
+            gateway_start,
+            gateway_stop,
+            gateway_restart,
+            get_gateway_logs,
+            read_openclaw_config,
+            write_openclaw_config,
+            check_openclaw_update,
+            run_openclaw_update,
         ])
         .run(tauri::generate_context!())
         .expect("启动应用失败");

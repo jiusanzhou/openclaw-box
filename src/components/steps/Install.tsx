@@ -8,6 +8,7 @@ interface InstallProps {
   config: InstallerConfig;
   remoteConfig: RemoteConfig;
   onBack: () => void;
+  onComplete?: () => void;
 }
 
 type SubStepStatus = "pending" | "running" | "done" | "error";
@@ -38,7 +39,7 @@ function makeInitialSteps(): InstallSubStep[] {
   }));
 }
 
-export function Install({ config, remoteConfig, onBack }: InstallProps) {
+export function Install({ config, remoteConfig, onBack, onComplete }: InstallProps) {
   const [steps, setSteps] = useState<InstallSubStep[]>(makeInitialSteps);
   const [installing, setInstalling] = useState(false);
   const [done, setDone] = useState(false);
@@ -260,9 +261,16 @@ export function Install({ config, remoteConfig, onBack }: InstallProps) {
           上一步
         </Button>
         {done ? (
-          <Button onClick={() => invoke("open_url", { url: gatewayUrl })}>
-            打开控制台
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => invoke("open_url", { url: gatewayUrl })}>
+              打开控制台
+            </Button>
+            {onComplete && (
+              <Button variant="secondary" onClick={onComplete}>
+                进入管理面板
+              </Button>
+            )}
+          </div>
         ) : error ? (
           <Button onClick={startInstall}>重试安装</Button>
         ) : (

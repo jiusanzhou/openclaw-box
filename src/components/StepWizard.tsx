@@ -19,9 +19,10 @@ const STEPS: { id: InstallStep; label: string }[] = [
 
 interface StepWizardProps {
   remoteConfig: RemoteConfig;
+  onComplete?: () => void;
 }
 
-export function StepWizard({ remoteConfig }: StepWizardProps) {
+export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
   const [currentStep, setCurrentStep] = useState<InstallStep>("welcome");
 
   const defaultChannel =
@@ -161,6 +162,7 @@ export function StepWizard({ remoteConfig }: StepWizardProps) {
               config={config}
               remoteConfig={remoteConfig}
               onBack={() => setCurrentStep("configure-channel")}
+              onComplete={onComplete}
             />
           )}
         </div>

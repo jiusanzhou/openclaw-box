@@ -43,3 +43,17 @@ export interface InstallPayload {
   channel_config: Record<string, string>;
   install_mode: string;
 }
+
+export interface GatewayStatus {
+  running: boolean;
+  version: string | null;
+  port: number | null;
+  url: string | null;
+  pid: number | null;
+}
+
+export interface UpdateInfo {
+  current_version: string;
+  latest_version: string;
+  has_update: boolean;
+}
