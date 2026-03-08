@@ -7,10 +7,12 @@ export interface ModelOption {
 export interface FreeEndpoint {
   id: string;
   name: string;
+  description?: string;
   base_url: string;
   models: ModelOption[];
   default_model: string;
   requires_key: boolean;
+  register_url?: string;
 }
 
 export interface ProviderConfig {
@@ -56,15 +58,25 @@ export interface RemoteConfig {
   announcement?: string;
 }
 
-// Baked-in fallback: imported at build time from config/remote.json
+export interface FreeEndpointsConfig {
+  version: number;
+  updated_at: string;
+  endpoints: FreeEndpoint[];
+}
+
+// Baked-in fallbacks: imported at build time
 import DEFAULT_CONFIG from "../../config/remote.json";
+import DEFAULT_FREE_ENDPOINTS from "../../config/free-endpoints.json";
 
 // Remote config URLs — tries in order, falls back to baked-in default
 const CONFIG_URLS = [
-  // GitHub raw (main branch) — you push JSON, users get updates instantly
   "https://raw.githubusercontent.com/jiusanzhou/openclaw-box/main/config/remote.json",
-  // CDN mirror (jsdelivr wraps GitHub, better for China)
   "https://cdn.jsdelivr.net/gh/jiusanzhou/openclaw-box@main/config/remote.json",
+];
+
+const FREE_ENDPOINTS_URLS = [
+  "https://raw.githubusercontent.com/jiusanzhou/openclaw-box/main/config/free-endpoints.json",
+  "https://cdn.jsdelivr.net/gh/jiusanzhou/openclaw-box@main/config/free-endpoints.json",
 ];
 
 export async function fetchRemoteConfig(): Promise<RemoteConfig> {
@@ -76,7 +88,6 @@ export async function fetchRemoteConfig(): Promise<RemoteConfig> {
       clearTimeout(timeout);
       if (!res.ok) continue;
       const data = await res.json();
-      // Basic validation: must have providers and channels
       if (data?.providers?.length && data?.channels?.length) {
         return data as RemoteConfig;
       }
@@ -84,6 +95,53 @@ export async function fetchRemoteConfig(): Promise<RemoteConfig> {
       // try next URL
     }
   }
-  // All remote sources failed, use baked-in fallback
   return DEFAULT_CONFIG as RemoteConfig;
+}
+
+export async function fetchFreeEndpoints(): Promise<FreeEndpointsConfig> {
+  for (const url of FREE_ENDPOINTS_URLS) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data?.endpoints?.length) {
+        return data as FreeEndpointsConfig;
+      }
+    } catch {
+      // try next URL
+    }
+  }
+  return DEFAULT_FREE_ENDPOINTS as FreeEndpointsConfig;
+}
+
+export async function loadAllConfig(): Promise<{
+  config: RemoteConfig;
+  freeEndpoints: FreeEndpointsConfig;
+}> {
+  const [config, freeEndpoints] = await Promise.all([
+    fetchRemoteConfig(),
+    fetchFreeEndpoints(),
+  ]);
+  return { config, freeEndpoints };
+}
+
+export function buildFreePublicProvider(
+  freeEndpoints: FreeEndpointsConfig,
+): ProviderConfig {
+  // Pick models from the first no-key endpoint for the top-level fields
+  const firstNoKey = freeEndpoints.endpoints.find((e) => !e.requires_key);
+  return {
+    id: "free-public",
+    name: "免费公共模型",
+    base_url: firstNoKey?.base_url ?? "",
+    models: firstNoKey?.models ?? [],
+    default_model: firstNoKey?.default_model ?? "",
+    badge: "零配置",
+    free_tier: "无需 API Key，开箱即用",
+    is_free_public: true,
+    endpoints: freeEndpoints.endpoints,
+  };
 }

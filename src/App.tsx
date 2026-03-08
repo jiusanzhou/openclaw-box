@@ -1,12 +1,22 @@
 import { useEffect, useState } from "react";
 import { StepWizard } from "./components/StepWizard";
-import { fetchRemoteConfig, type RemoteConfig } from "./lib/api";
+import {
+  loadAllConfig,
+  buildFreePublicProvider,
+  type RemoteConfig,
+} from "./lib/api";
 
 export default function App() {
   const [remoteConfig, setRemoteConfig] = useState<RemoteConfig | null>(null);
 
   useEffect(() => {
-    fetchRemoteConfig().then(setRemoteConfig);
+    loadAllConfig().then(({ config, freeEndpoints }) => {
+      const freeProvider = buildFreePublicProvider(freeEndpoints);
+      setRemoteConfig({
+        ...config,
+        providers: [freeProvider, ...config.providers],
+      });
+    });
   }, []);
 
   if (!remoteConfig) {

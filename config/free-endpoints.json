@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "updated_at": "2026-03-08",
+  "endpoints": [
+    {
+      "id": "openrouter-free",
+      "name": "OpenRouter 免费模型",
+      "description": "全球最大的模型聚合平台，多个免费模型可选",
+      "base_url": "https://openrouter.ai/api/v1",
+      "requires_key": false,
+      "models": [
+        { "id": "deepseek/deepseek-chat-v3-0324:free", "name": "DeepSeek V3", "free": true },
+        { "id": "qwen/qwen3-coder:free", "name": "Qwen3 Coder", "free": true },
+        { "id": "qwen/qwen3-4b:free", "name": "Qwen3 4B", "free": true },
+        { "id": "z-ai/glm-4.5-air:free", "name": "GLM-4.5 Air", "free": true },
+        { "id": "google/gemma-3-12b-it:free", "name": "Gemma 3 12B", "free": true },
+        { "id": "mistralai/mistral-small-3.1-24b-instruct:free", "name": "Mistral Small 3.1", "free": true },
+        { "id": "openai/gpt-oss-120b:free", "name": "GPT-OSS 120B", "free": true },
+        { "id": "nvidia/nemotron-3-nano-30b-a3b:free", "name": "Nemotron 3 Nano 30B", "free": true }
+      ],
+      "default_model": "deepseek/deepseek-chat-v3-0324:free"
+    },
+    {
+      "id": "kilocode-free",
+      "name": "Kilocode 免费模型",
+      "description": "OpenClaw 内置 provider，需注册获取 Key",
+      "base_url": "https://api.kilo.ai/api/gateway/",
+      "requires_key": true,
+      "register_url": "https://kilo.ai/",
+      "models": [
+        { "id": "z-ai/glm-5:free", "name": "GLM-5", "free": true },
+        { "id": "minimax/minimax-m2.5:free", "name": "MiniMax M2.5", "free": true }
+      ],
+      "default_model": "z-ai/glm-5:free"
+    }
+  ]
+}
