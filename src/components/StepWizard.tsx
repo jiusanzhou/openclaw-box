@@ -54,10 +54,10 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
-      <div className="w-48 bg-indigo-900 text-white p-4 flex flex-col">
+      <div className="w-52 bg-indigo-950 text-white p-5 flex flex-col">
         <div className="mb-6">
-          <h1 className="text-lg font-bold">OpenClaw</h1>
-          <p className="text-indigo-300 text-sm">Box</p>
+          <h1 className="text-xl font-bold text-white">OpenClaw</h1>
+          <p className="text-indigo-200 text-sm mt-0.5">Box</p>
         </div>
         <nav className="space-y-1 flex-1">
           {STEPS.map((step, i) => (
@@ -67,8 +67,8 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
                 step.id === currentStep
                   ? "bg-indigo-700 text-white"
                   : i < currentIndex
-                    ? "text-indigo-300"
-                    : "text-indigo-400"
+                    ? "text-indigo-100"
+                    : "text-indigo-200"
               }`}
             >
               <div
@@ -76,8 +76,8 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
                   i < currentIndex
                     ? "bg-green-500 text-white"
                     : step.id === currentStep
-                      ? "bg-white text-indigo-900"
-                      : "bg-indigo-800 text-indigo-400"
+                      ? "bg-white text-indigo-950 font-bold"
+                      : "bg-indigo-800 text-indigo-200"
                 }`}
               >
                 {i < currentIndex ? (
@@ -98,11 +98,11 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
                   i + 1
                 )}
               </div>
-              <span className="text-xs font-medium">{step.label}</span>
+              <span className="text-sm font-medium">{step.label}</span>
             </div>
           ))}
         </nav>
-        <div className="text-indigo-400 text-xs">v0.1.0</div>
+        <div className="text-indigo-300 text-xs px-1">v0.1.0</div>
       </div>
 
       {/* Content */}
