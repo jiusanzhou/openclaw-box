@@ -1,4 +1,4 @@
-export type InstallStep = "welcome" | "configure" | "install";
+export type InstallStep = "welcome" | "choose-provider" | "configure-model" | "choose-channel" | "configure-channel" | "install";
 
 export interface InstallerConfig {
   provider: string;

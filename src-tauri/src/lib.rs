@@ -727,6 +727,55 @@ fn install_step_start(config: InstallConfig, state: State<AppState>) -> StepResu
 }
 
 #[tauri::command]
+fn test_api_connection(base_url: String, api_key: String) -> StepResult {
+    let mut logs = Vec::new();
+    let url = format!(
+        "{}/models",
+        base_url.trim_end_matches('/')
+    );
+    logs.push(format!("测试连接: {}", url));
+
+    let result = Command::new("curl")
+        .args([
+            "-sS",
+            "-o", "/dev/null",
+            "-w", "%{http_code}",
+            "-m", "10",
+            "-H", &format!("Authorization: Bearer {}", api_key),
+            &url,
+        ])
+        .output();
+
+    match result {
+        Ok(output) => {
+            let code = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            logs.push(format!("HTTP 状态码: {}", code));
+            if code == "200" {
+                StepResult {
+                    success: true,
+                    message: "连接成功".to_string(),
+                    logs,
+                }
+            } else {
+                StepResult {
+                    success: false,
+                    message: format!("连接失败，HTTP {}", code),
+                    logs,
+                }
+            }
+        }
+        Err(e) => {
+            logs.push(format!("请求失败: {}", e));
+            StepResult {
+                success: false,
+                message: format!("连接失败: {}", e),
+                logs,
+            }
+        }
+    }
+}
+
+#[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| e.to_string())
 }
@@ -750,6 +799,7 @@ pub fn run() {
             install_step_openclaw,
             install_step_configure,
             install_step_start,
+            test_api_connection,
             open_url,
             get_logs,
         ])

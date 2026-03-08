@@ -1,14 +1,20 @@
 import { useState } from "react";
 import { Welcome } from "./steps/Welcome";
-import { Configure } from "./steps/Configure";
+import { ChooseProvider } from "./steps/ChooseProvider";
+import { ConfigureModel } from "./steps/ConfigureModel";
+import { ChooseChannel } from "./steps/ChooseChannel";
+import { ConfigureChannel } from "./steps/ConfigureChannel";
 import { Install } from "./steps/Install";
 import type { InstallStep, InstallerConfig } from "../lib/types";
 import type { RemoteConfig } from "../lib/api";
 
-const STEPS: { id: InstallStep; label: string; number: number }[] = [
-  { id: "welcome", label: "欢迎", number: 1 },
-  { id: "configure", label: "配置", number: 2 },
-  { id: "install", label: "安装", number: 3 },
+const STEPS: { id: InstallStep; label: string }[] = [
+  { id: "welcome", label: "欢迎" },
+  { id: "choose-provider", label: "服务商" },
+  { id: "configure-model", label: "模型" },
+  { id: "choose-channel", label: "渠道" },
+  { id: "configure-channel", label: "渠道配置" },
+  { id: "install", label: "安装" },
 ];
 
 interface StepWizardProps {
@@ -40,16 +46,16 @@ export function StepWizard({ remoteConfig }: StepWizardProps) {
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
-      <div className="w-56 bg-indigo-900 text-white p-6 flex flex-col">
-        <div className="mb-8">
+      <div className="w-48 bg-indigo-900 text-white p-4 flex flex-col">
+        <div className="mb-6">
           <h1 className="text-lg font-bold">OpenClaw</h1>
           <p className="text-indigo-300 text-sm">Box</p>
         </div>
-        <nav className="space-y-2 flex-1">
+        <nav className="space-y-1 flex-1">
           {STEPS.map((step, i) => (
             <div
               key={step.id}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors ${
                 step.id === currentStep
                   ? "bg-indigo-700 text-white"
                   : i < currentIndex
@@ -58,17 +64,33 @@ export function StepWizard({ remoteConfig }: StepWizardProps) {
               }`}
             >
               <div
-                className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-medium ${
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
                   i < currentIndex
-                    ? "bg-indigo-500 text-white"
+                    ? "bg-green-500 text-white"
                     : step.id === currentStep
                       ? "bg-white text-indigo-900"
                       : "bg-indigo-800 text-indigo-400"
                 }`}
               >
-                {i < currentIndex ? "✓" : step.number}
+                {i < currentIndex ? (
+                  <svg
+                    className="w-3 h-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                ) : (
+                  i + 1
+                )}
               </div>
-              <span className="text-sm font-medium">{step.label}</span>
+              <span className="text-xs font-medium">{step.label}</span>
             </div>
           ))}
         </nav>
@@ -87,23 +109,51 @@ export function StepWizard({ remoteConfig }: StepWizardProps) {
           {currentStep === "welcome" && (
             <Welcome
               remoteConfig={remoteConfig}
-              onNext={() => setCurrentStep("configure")}
+              onNext={() => setCurrentStep("choose-provider")}
             />
           )}
-          {currentStep === "configure" && (
-            <Configure
+          {currentStep === "choose-provider" && (
+            <ChooseProvider
+              config={config}
+              remoteConfig={remoteConfig}
+              onChange={setConfig}
+              onNext={() => setCurrentStep("configure-model")}
+              onBack={() => setCurrentStep("welcome")}
+            />
+          )}
+          {currentStep === "configure-model" && (
+            <ConfigureModel
+              config={config}
+              remoteConfig={remoteConfig}
+              onChange={setConfig}
+              onNext={() => setCurrentStep("choose-channel")}
+              onBack={() => setCurrentStep("choose-provider")}
+              onChangeProvider={() => setCurrentStep("choose-provider")}
+            />
+          )}
+          {currentStep === "choose-channel" && (
+            <ChooseChannel
+              config={config}
+              remoteConfig={remoteConfig}
+              onChange={setConfig}
+              onNext={() => setCurrentStep("configure-channel")}
+              onBack={() => setCurrentStep("configure-model")}
+            />
+          )}
+          {currentStep === "configure-channel" && (
+            <ConfigureChannel
               config={config}
               remoteConfig={remoteConfig}
               onChange={setConfig}
               onNext={() => setCurrentStep("install")}
-              onBack={() => setCurrentStep("welcome")}
+              onBack={() => setCurrentStep("choose-channel")}
             />
           )}
           {currentStep === "install" && (
             <Install
               config={config}
               remoteConfig={remoteConfig}
-              onBack={() => setCurrentStep("configure")}
+              onBack={() => setCurrentStep("configure-channel")}
             />
           )}
         </div>
