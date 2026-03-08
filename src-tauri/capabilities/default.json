@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "OpenClaw 安装助手默认权限",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open"
+  ]
+}

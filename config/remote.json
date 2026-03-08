@@ -1,0 +1,107 @@
+{
+  "mirrors": {
+    "node_download": "https://npmmirror.com/mirrors/node/",
+    "npm_registry": "https://registry.npmmirror.com"
+  },
+  "node_version": "22.22.0",
+  "openclaw_version": "latest",
+  "providers": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "base_url": "https://api.deepseek.com/v1",
+      "models": [
+        { "id": "deepseek-chat", "name": "DeepSeek Chat" },
+        { "id": "deepseek-reasoner", "name": "DeepSeek Reasoner" }
+      ],
+      "default_model": "deepseek-chat",
+      "register_url": "https://platform.deepseek.com/"
+    },
+    {
+      "id": "siliconflow",
+      "name": "硅基流动 (SiliconFlow)",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "models": [
+        { "id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek V3" },
+        { "id": "Qwen/Qwen3-8B", "name": "Qwen3 8B" },
+        { "id": "deepseek-ai/DeepSeek-R1", "name": "DeepSeek R1" }
+      ],
+      "default_model": "deepseek-ai/DeepSeek-V3",
+      "register_url": "https://cloud.siliconflow.cn/"
+    },
+    {
+      "id": "zhipu",
+      "name": "智谱AI (Zhipu)",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "models": [
+        { "id": "glm-4-plus", "name": "GLM-4 Plus" },
+        { "id": "glm-4-flash", "name": "GLM-4 Flash (免费)" }
+      ],
+      "default_model": "glm-4-flash",
+      "register_url": "https://open.bigmodel.cn/"
+    },
+    {
+      "id": "tongyi",
+      "name": "通义千问 (Tongyi)",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "models": [
+        { "id": "qwen-plus", "name": "Qwen Plus" },
+        { "id": "qwen-turbo", "name": "Qwen Turbo" }
+      ],
+      "default_model": "qwen-plus",
+      "register_url": "https://dashscope.console.aliyun.com/"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "models": [
+        { "id": "anthropic/claude-sonnet-4", "name": "Claude Sonnet 4" },
+        { "id": "openai/gpt-4o", "name": "GPT-4o" },
+        { "id": "deepseek/deepseek-chat-v3-0324", "name": "DeepSeek V3" }
+      ],
+      "default_model": "anthropic/claude-sonnet-4",
+      "register_url": "https://openrouter.ai/"
+    },
+    {
+      "id": "custom",
+      "name": "自定义 (Custom)",
+      "base_url": "",
+      "models": [],
+      "default_model": ""
+    }
+  ],
+  "channels": [
+    {
+      "id": "web",
+      "name": "Web 界面",
+      "description": "通过浏览器访问，最简单的方式",
+      "fields": [],
+      "is_default": true
+    },
+    {
+      "id": "telegram",
+      "name": "Telegram Bot",
+      "fields": [
+        { "key": "token", "label": "Bot Token", "placeholder": "123456:ABC-DEF", "type": "password", "required": true }
+      ],
+      "help_doc": "https://core.telegram.org/bots#botfather"
+    },
+    {
+      "id": "feishu",
+      "name": "飞书",
+      "fields": [
+        { "key": "app_id", "label": "App ID", "required": true },
+        { "key": "app_secret", "label": "App Secret", "type": "password", "required": true }
+      ]
+    },
+    {
+      "id": "qq",
+      "name": "QQ",
+      "fields": [
+        { "key": "bot_id", "label": "Bot ID", "required": true },
+        { "key": "bot_secret", "label": "Bot Secret", "type": "password", "required": true }
+      ]
+    }
+  ]
+}
