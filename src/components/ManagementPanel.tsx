@@ -30,22 +30,22 @@ export function ManagementPanel({ remoteConfig, onReset }: ManagementPanelProps)
   const [activePage, setActivePage] = useState<ManagePage>("dashboard");
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}
-      <div className="w-52 bg-indigo-950 text-white p-5 flex flex-col">
+      <div className="w-52 bg-white/80 backdrop-blur-xl border-r border-gray-200 p-5 flex flex-col">
         <div className="mb-8">
-          <h1 className="text-xl font-bold text-white">OpenClaw</h1>
-          <p className="text-indigo-200 text-sm mt-0.5">管理面板</p>
+          <h1 className="text-xl font-bold text-gray-800">OpenClaw</h1>
+          <p className="text-gray-400 text-sm mt-0.5">管理面板</p>
         </div>
-        <nav className="space-y-1.5 flex-1">
+        <nav className="space-y-1 flex-1">
           {NAV_ITEMS.map((item) => (
             <button
               key={item.id}
               onClick={() => setActivePage(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-left ${
                 item.id === activePage
-                  ? "bg-indigo-600 text-white font-semibold shadow-md"
-                  : "text-indigo-100 hover:bg-indigo-800 hover:text-white"
+                  ? "bg-indigo-50 text-indigo-700 font-semibold"
+                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
               }`}
             >
               <span className="text-base">{item.icon}</span>
@@ -56,11 +56,11 @@ export function ManagementPanel({ remoteConfig, onReset }: ManagementPanelProps)
         <div className="space-y-2">
           <button
             onClick={() => invoke("open_url", { url: "http://localhost:18789" })}
-            className="w-full text-sm text-indigo-100 hover:text-white bg-indigo-800 hover:bg-indigo-700 rounded-lg px-3 py-2.5 transition-colors text-left"
+            className="w-full text-sm text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-2.5 transition-colors text-left"
           >
             🔗 打开控制台
           </button>
-          <div className="text-indigo-300 text-xs px-1">v0.1.0</div>
+          <div className="text-gray-400 text-xs px-1">v0.2.0</div>
         </div>
       </div>
 
