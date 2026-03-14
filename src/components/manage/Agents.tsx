@@ -649,6 +649,9 @@ export function Agents() {
   const [activeTab, setActiveTab] = useState<AgentTab>("chat");
   const [loading, setLoading] = useState(true);
 
+  const selectedAgentRef = useRef<MergedAgent | null>(null);
+  selectedAgentRef.current = selectedAgent;
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -663,8 +666,9 @@ export function Agents() {
       setDashboardUrl(url);
       setGatewayRunning(status.running);
       // Update selected agent reference if still selected
-      if (selectedAgent) {
-        const updated = merged.find((a) => a.id === selectedAgent.id);
+      const current = selectedAgentRef.current;
+      if (current) {
+        const updated = merged.find((a) => a.id === current.id);
         if (updated) setSelectedAgent(updated);
       }
     } catch {
@@ -672,7 +676,7 @@ export function Agents() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAgent]);
+  }, []);
 
   useEffect(() => {
     loadData();
