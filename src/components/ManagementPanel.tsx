@@ -7,20 +7,16 @@ import { ChannelConfig } from "./manage/ChannelConfig";
 import { Logs } from "./manage/Logs";
 import { Update } from "./manage/Update";
 import { Settings } from "./manage/Settings";
-import { Chat } from "./manage/Chat";
-import { Memory } from "./manage/Memory";
-import { Tasks } from "./manage/Tasks";
+import { Agents } from "./manage/Agents";
 
-type ManagePage = "dashboard" | "chat" | "model" | "channel" | "logs" | "tasks" | "memory" | "update" | "settings";
+type ManagePage = "dashboard" | "agents" | "model" | "channel" | "logs" | "update" | "settings";
 
 const NAV_ITEMS: { id: ManagePage; icon: string; label: string }[] = [
   { id: "dashboard", icon: "📊", label: "总览" },
-  { id: "chat", icon: "💬", label: "对话" },
-  { id: "model", icon: "🤖", label: "模型" },
+  { id: "agents", icon: "🤖", label: "智能体" },
+  { id: "model", icon: "🧩", label: "模型" },
   { id: "channel", icon: "🔗", label: "渠道" },
   { id: "logs", icon: "📋", label: "日志" },
-  { id: "tasks", icon: "⚙️", label: "任务" },
-  { id: "memory", icon: "🧠", label: "记忆" },
   { id: "update", icon: "⬆️", label: "更新" },
   { id: "settings", icon: "🔧", label: "设置" },
 ];
@@ -71,12 +67,10 @@ export function ManagementPanel({ remoteConfig, onReset }: ManagementPanelProps)
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {activePage === "dashboard" && <Dashboard remoteConfig={remoteConfig} />}
-        {activePage === "chat" && <Chat onNavigate={(p) => setActivePage(p as ManagePage)} />}
+        {activePage === "agents" && <Agents />}
         {activePage === "model" && <ModelConfig remoteConfig={remoteConfig} />}
         {activePage === "channel" && <ChannelConfig remoteConfig={remoteConfig} />}
         {activePage === "logs" && <Logs />}
-        {activePage === "tasks" && <Tasks />}
-        {activePage === "memory" && <Memory />}
         {activePage === "update" && <Update remoteConfig={remoteConfig} />}
         {activePage === "settings" && <Settings onReset={onReset} />}
       </div>
