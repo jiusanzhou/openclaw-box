@@ -5,11 +5,10 @@ import { Dashboard } from "./manage/Dashboard";
 import { ModelConfig } from "./manage/ModelConfig";
 import { ChannelConfig } from "./manage/ChannelConfig";
 import { Logs } from "./manage/Logs";
-import { Update } from "./manage/Update";
 import { Settings } from "./manage/Settings";
 import { Agents } from "./manage/Agents";
 
-type ManagePage = "dashboard" | "agents" | "model" | "channel" | "logs" | "update" | "settings";
+type ManagePage = "dashboard" | "agents" | "model" | "channel" | "logs" | "settings";
 
 const NAV_ITEMS: { id: ManagePage; icon: string; label: string }[] = [
   { id: "dashboard", icon: "📊", label: "总览" },
@@ -17,7 +16,6 @@ const NAV_ITEMS: { id: ManagePage; icon: string; label: string }[] = [
   { id: "model", icon: "🧩", label: "模型" },
   { id: "channel", icon: "🔗", label: "渠道" },
   { id: "logs", icon: "📋", label: "日志" },
-  { id: "update", icon: "⬆️", label: "更新" },
   { id: "settings", icon: "🔧", label: "设置" },
 ];
 
@@ -71,8 +69,7 @@ export function ManagementPanel({ remoteConfig, onReset }: ManagementPanelProps)
         {activePage === "model" && <ModelConfig remoteConfig={remoteConfig} />}
         {activePage === "channel" && <ChannelConfig remoteConfig={remoteConfig} />}
         {activePage === "logs" && <Logs />}
-        {activePage === "update" && <Update remoteConfig={remoteConfig} />}
-        {activePage === "settings" && <Settings onReset={onReset} />}
+        {activePage === "settings" && <Settings onReset={onReset} remoteConfig={remoteConfig} />}
       </div>
     </div>
   );

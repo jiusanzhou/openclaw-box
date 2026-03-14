@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import type { StepResult } from "../../lib/types";
+import type { StepResult, UpdateInfo } from "../../lib/types";
 
 interface HealthItem {
   key: string;
@@ -26,9 +26,10 @@ const STATUS_CLS: Record<string, string> = {
 
 interface SettingsProps {
   onReset: () => void;
+  remoteConfig?: { mirrors: { npm_registry: string }; openclaw_version: string };
 }
 
-export function Settings({ onReset }: SettingsProps) {
+export function Settings({ onReset, remoteConfig }: SettingsProps) {
   const [configYaml, setConfigYaml] = useState("");
   const [npmRegistry, setNpmRegistry] = useState("https://registry.npmmirror.com");
   const [gatewayPort, setGatewayPort] = useState("18789");
@@ -46,6 +47,15 @@ export function Settings({ onReset }: SettingsProps) {
   const [restoreContent, setRestoreContent] = useState("");
   const [restoring, setRestoring] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Update state
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState("");
+  const [updateMsg, setUpdateMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const effectiveRegistry = remoteConfig?.mirrors?.npm_registry || npmRegistry;
 
   useEffect(() => {
     invoke<string>("read_openclaw_config")
@@ -161,6 +171,46 @@ export function Settings({ onReset }: SettingsProps) {
       setRestoreMsg({ type: "error", text: `恢复失败: ${e}` });
     }
     setRestoring(false);
+  };
+
+  const checkForUpdates = async () => {
+    setCheckingUpdate(true);
+    setUpdateMsg(null);
+    try {
+      const info = await invoke<UpdateInfo>("check_openclaw_update", {
+        npmRegistry: effectiveRegistry,
+      });
+      setUpdateInfo(info);
+      if (!info.has_update) {
+        setUpdateMsg({ type: "success", text: "已是最新版本" });
+      }
+    } catch (e) {
+      setUpdateMsg({ type: "error", text: `检查更新失败: ${e}` });
+    }
+    setCheckingUpdate(false);
+  };
+
+  const runUpdate = async () => {
+    if (!updateInfo) return;
+    setUpdating(true);
+    setUpdateMsg(null);
+    setUpdateProgress("正在更新...");
+    try {
+      const result = await invoke<StepResult>("run_openclaw_update", {
+        npmRegistry: effectiveRegistry,
+        version: updateInfo.latest_version,
+      });
+      if (result.success) {
+        setUpdateMsg({ type: "success", text: `已更新到 ${updateInfo.latest_version}` });
+        setUpdateInfo(null);
+      } else {
+        setUpdateMsg({ type: "error", text: result.message });
+      }
+    } catch (e) {
+      setUpdateMsg({ type: "error", text: `更新失败: ${e}` });
+    }
+    setUpdateProgress("");
+    setUpdating(false);
   };
 
   return (
@@ -336,6 +386,50 @@ export function Settings({ onReset }: SettingsProps) {
             }`}
           >
             {restoreMsg.text}
+          </div>
+        )}
+      </div>
+
+      {/* Update */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-gray-900">版本更新</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-gray-500 mb-1">当前版本</p>
+            <p className="text-sm font-medium text-gray-900">
+              {updateInfo?.current_version || remoteConfig?.openclaw_version || "—"}
+            </p>
+          </div>
+          {updateInfo?.latest_version && (
+            <div>
+              <p className="text-xs text-gray-500 mb-1">最新版本</p>
+              <p className="text-sm font-medium text-gray-900">{updateInfo.latest_version}</p>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={checkForUpdates} disabled={checkingUpdate || updating}>
+            {checkingUpdate ? "检查中..." : "检查更新"}
+          </Button>
+          {updateInfo?.has_update && (
+            <Button onClick={runUpdate} disabled={updating}>
+              {updating ? "更新中..." : `更新到 ${updateInfo.latest_version}`}
+            </Button>
+          )}
+        </div>
+        {updateProgress && (
+          <div className="flex items-center gap-2 text-sm text-indigo-600">
+            <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            {updateProgress}
+          </div>
+        )}
+        {updateMsg && (
+          <div className={`p-3 rounded-lg text-sm ${
+            updateMsg.type === "success"
+              ? "bg-green-50 border border-green-200 text-green-700"
+              : "bg-red-50 border border-red-200 text-red-700"
+          }`}>
+            {updateMsg.text}
           </div>
         )}
       </div>
