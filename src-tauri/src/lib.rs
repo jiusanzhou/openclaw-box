@@ -1174,6 +1174,754 @@ fn get_dashboard_url() -> String {
     }
 }
 
+// --- Agent Status ---
+
+#[derive(Serialize)]
+struct AgentStatus {
+    id: String,
+    name: String,
+    emoji: String,
+    status: String,         // "working" | "idle" | "offline"
+    last_active_ms: Option<u64>,
+    last_session_key: String,
+    minutes_ago: Option<u64>,
+}
+
+#[tauri::command]
+fn get_agent_statuses() -> Vec<AgentStatus> {
+    let Some(config) = read_openclaw_json_config() else { return vec![] };
+    let Some(agents) = config.get("agents").and_then(|a| a.get("list")).and_then(|l| l.as_array()) else {
+        return vec![];
+    };
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    agents.iter().filter_map(|a| {
+        let id = a.get("id")?.as_str()?.to_string();
+        let name = a.get("name").or_else(|| a.get("identity").and_then(|i| i.get("name")))
+            .and_then(|n| n.as_str()).unwrap_or(&id).to_string();
+        let emoji = a.get("identity").and_then(|i| i.get("emoji")).and_then(|e| e.as_str())
+            .unwrap_or("🤖").to_string();
+
+        let sessions_file = format!("{home}/.openclaw/agents/{id}/sessions/sessions.json");
+        let mut last_active_ms: Option<u64> = None;
+        let mut last_session_key = String::new();
+
+        if let Ok(content) = std::fs::read_to_string(&sessions_file) {
+            if let Ok(sessions_val) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(map) = sessions_val.as_object() {
+                    for (key, session) in map {
+                        let updated = session.get("updatedAt").and_then(|v| v.as_u64()).unwrap_or(0);
+                        if updated > last_active_ms.unwrap_or(0) {
+                            last_active_ms = Some(updated);
+                            last_session_key = key.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        let (status, minutes_ago) = match last_active_ms {
+            None => ("offline".to_string(), None),
+            Some(t) => {
+                let mins = (now_ms.saturating_sub(t)) / 60_000;
+                let s = if mins < 5 { "working" } else if mins < 120 { "idle" } else { "offline" };
+                (s.to_string(), Some(mins))
+            }
+        };
+
+        Some(AgentStatus { id, name, emoji, status, last_active_ms, last_session_key, minutes_ago })
+    }).collect()
+}
+
+// --- Usage Stats ---
+
+fn ms_to_date_utc(ts_ms: u64) -> String {
+    let secs = ts_ms / 1000;
+    let day_num = secs / 86400;
+    let jdn = day_num as i64 + 2440588; // Julian Day Number
+    let a = jdn + 32044;
+    let b = (4 * a + 3) / 146097;
+    let c = a - (146097 * b) / 4;
+    let d = (4 * c + 3) / 1461;
+    let e = c - (1461 * d) / 4;
+    let m = (5 * e + 2) / 153;
+    let dom = e - (153 * m + 2) / 5 + 1;
+    let month = m + 3 - 12 * (m / 10);
+    let year = 100 * b + d - 4800 + m / 10;
+    format!("{:04}-{:02}-{:02}", year, month, dom)
+}
+
+#[derive(Serialize)]
+struct DayUsage {
+    date: String,
+    tokens: u64,
+}
+
+#[derive(Serialize)]
+struct ContextPressure {
+    session_key: String,
+    agent_id: String,
+    ratio: f64,
+    context_window: u64,
+    estimated_tokens: u64,
+}
+
+#[derive(Serialize)]
+struct UsageStats {
+    available: bool,
+    today_input: u64,
+    today_output: u64,
+    today_total: u64,
+    daily: Vec<DayUsage>,
+    hot_sessions: Vec<ContextPressure>,
+}
+
+#[tauri::command]
+fn get_usage_stats() -> UsageStats {
+    let empty = UsageStats {
+        available: false,
+        today_input: 0,
+        today_output: 0,
+        today_total: 0,
+        daily: vec![],
+        hot_sessions: vec![],
+    };
+
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return empty,
+    };
+
+    let agents_dir = std::path::Path::new(&home).join(".openclaw/agents");
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let today_start_ms = (now_ms / 86_400_000) * 86_400_000;
+    let today_date = ms_to_date_utc(today_start_ms);
+
+    // Last 7 days including today, oldest first
+    let day_dates: Vec<String> = (0..7u64).rev().map(|i| {
+        ms_to_date_utc(today_start_ms - i * 86_400_000)
+    }).collect();
+
+    let mut daily_tokens: std::collections::HashMap<String, u64> = day_dates.iter()
+        .map(|d| (d.clone(), 0u64))
+        .collect();
+
+    let mut today_input: u64 = 0;
+    let mut today_output: u64 = 0;
+    let mut hot_sessions: Vec<ContextPressure> = vec![];
+    let mut any_data = false;
+
+    let Ok(agent_entries) = std::fs::read_dir(&agents_dir) else {
+        return empty;
+    };
+
+    for agent_entry in agent_entries.filter_map(|e| e.ok()) {
+        let agent_id = agent_entry.file_name().to_string_lossy().to_string();
+        let sessions_file = agent_entry.path().join("sessions/sessions.json");
+
+        let Ok(content) = std::fs::read_to_string(&sessions_file) else { continue };
+        let Ok(sessions_val) = serde_json::from_str::<serde_json::Value>(&content) else { continue };
+        let Some(sessions_map) = sessions_val.as_object() else { continue };
+
+        for (session_key, session) in sessions_map {
+            let input = session.get("inputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let output = session.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let updated = session.get("updatedAt").and_then(|v| v.as_u64()).unwrap_or(0);
+
+            if updated == 0 || (input == 0 && output == 0) { continue }
+            any_data = true;
+
+            let date = ms_to_date_utc(updated);
+
+            if let Some(day_total) = daily_tokens.get_mut(&date) {
+                *day_total += input + output;
+            }
+
+            if date == today_date {
+                today_input += input;
+                today_output += output;
+            }
+
+            // Context pressure: estimate from transcript file size (4 chars ≈ 1 token)
+            let session_file = session.get("sessionFile").and_then(|v| v.as_str()).unwrap_or("");
+            let context_window = session.get("contextTokens").and_then(|v| v.as_u64())
+                .filter(|&v| v > 0)
+                .unwrap_or(200_000);
+
+            if !session_file.is_empty() {
+                if let Ok(meta) = std::fs::metadata(session_file) {
+                    let estimated_tokens = meta.len() / 4;
+                    let ratio = (estimated_tokens as f64 / context_window as f64).min(1.0);
+                    if ratio > 0.5 {
+                        hot_sessions.push(ContextPressure {
+                            session_key: session_key.clone(),
+                            agent_id: agent_id.clone(),
+                            ratio,
+                            context_window,
+                            estimated_tokens,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if !any_data {
+        return empty;
+    }
+
+    hot_sessions.sort_by(|a, b| b.ratio.partial_cmp(&a.ratio).unwrap_or(std::cmp::Ordering::Equal));
+    hot_sessions.truncate(5);
+
+    let daily: Vec<DayUsage> = day_dates.into_iter()
+        .map(|d| DayUsage { tokens: daily_tokens.get(&d).copied().unwrap_or(0), date: d })
+        .collect();
+
+    UsageStats {
+        available: true,
+        today_input,
+        today_output,
+        today_total: today_input + today_output,
+        daily,
+        hot_sessions,
+    }
+}
+
+// --- Memory File Commands ---
+
+#[derive(Serialize)]
+struct MemoryFileInfo {
+    path: String,
+    name: String,
+    size: u64,
+    last_modified: Option<u64>,
+    available: bool,
+}
+
+#[tauri::command]
+fn list_agent_memory_files(workspace: String) -> Vec<MemoryFileInfo> {
+    let mut files: Vec<MemoryFileInfo> = Vec::new();
+
+    // MEMORY.md in workspace root
+    let memory_md = format!("{workspace}/MEMORY.md");
+    let memory_path = std::path::Path::new(&memory_md);
+    let (size, last_modified, available) = if let Ok(meta) = std::fs::metadata(memory_path) {
+        let lm = meta.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+        (meta.len(), lm, true)
+    } else {
+        (0, None, false)
+    };
+    files.push(MemoryFileInfo {
+        path: memory_md,
+        name: "MEMORY.md".to_string(),
+        size,
+        last_modified,
+        available,
+    });
+
+    // memory/*.md files
+    let memory_dir = format!("{workspace}/memory");
+    if let Ok(entries) = std::fs::read_dir(&memory_dir) {
+        let mut sub: Vec<MemoryFileInfo> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path().extension().and_then(|x| x.to_str()) == Some("md")
+            })
+            .map(|e| {
+                let path = e.path().to_string_lossy().to_string();
+                let name = format!("memory/{}", e.file_name().to_string_lossy());
+                let (sz, lm, av) = if let Ok(meta) = e.metadata() {
+                    let lm = meta.modified().ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs());
+                    (meta.len(), lm, true)
+                } else {
+                    (0, None, false)
+                };
+                MemoryFileInfo { path, name, size: sz, last_modified: lm, available: av }
+            })
+            .collect();
+        sub.sort_by(|a, b| a.name.cmp(&b.name));
+        files.extend(sub);
+    }
+
+    files
+}
+
+#[tauri::command]
+fn read_memory_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {e}"))
+}
+
+#[tauri::command]
+fn write_memory_file(path: String, content: String) -> StepResult {
+    // Ensure parent directory exists
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return StepResult { success: false, message: format!("创建目录失败: {e}"), logs: vec![] };
+        }
+    }
+    match std::fs::write(&path, &content) {
+        Ok(_) => StepResult { success: true, message: "已保存".to_string(), logs: vec![] },
+        Err(e) => StepResult { success: false, message: format!("写入失败: {e}"), logs: vec![] },
+    }
+}
+
+// --- Cron / Sessions Commands ---
+
+#[derive(Serialize)]
+struct CronJobInfo {
+    id: String,
+    agent_id: String,
+    name: String,
+    enabled: bool,
+    schedule_kind: String,
+    schedule_expr: String,
+    last_run_at_ms: Option<u64>,
+    next_run_at_ms: Option<u64>,
+    last_run_status: String,
+    last_duration_ms: Option<u64>,
+    consecutive_errors: u64,
+}
+
+#[tauri::command]
+fn list_cron_jobs() -> Vec<CronJobInfo> {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return vec![],
+    };
+    let path = format!("{home}/.openclaw/cron/jobs.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let val: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+    let jobs = match val.get("jobs").and_then(|j| j.as_array()) {
+        Some(j) => j.clone(),
+        None => return vec![],
+    };
+
+    jobs.iter().filter_map(|j| {
+        let id = j.get("id")?.as_str()?.to_string();
+        let agent_id = j.get("agentId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let name = j.get("name").and_then(|v| v.as_str()).unwrap_or(&id).to_string();
+        let enabled = j.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+
+        let schedule = j.get("schedule").unwrap_or(&serde_json::Value::Null);
+        let schedule_kind = schedule.get("kind").and_then(|v| v.as_str()).unwrap_or("cron").to_string();
+        let schedule_expr = schedule.get("expr")
+            .or_else(|| schedule.get("at"))
+            .and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        let state = j.get("state").unwrap_or(&serde_json::Value::Null);
+        let last_run_at_ms = state.get("lastRunAtMs").and_then(|v| v.as_u64());
+        let next_run_at_ms = state.get("nextRunAtMs").and_then(|v| v.as_u64());
+        let last_run_status = state.get("lastRunStatus").or_else(|| state.get("lastStatus"))
+            .and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let last_duration_ms = state.get("lastDurationMs").and_then(|v| v.as_u64());
+        let consecutive_errors = state.get("consecutiveErrors").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        Some(CronJobInfo {
+            id, agent_id, name, enabled,
+            schedule_kind, schedule_expr,
+            last_run_at_ms, next_run_at_ms, last_run_status,
+            last_duration_ms, consecutive_errors,
+        })
+    }).collect()
+}
+
+#[tauri::command]
+fn trigger_cron_job(job_id: String) -> StepResult {
+    match Command::new(&find_openclaw())
+        .args(["cron", "trigger", &job_id])
+        .env("PATH", get_enriched_path())
+        .output()
+    {
+        Ok(o) => StepResult {
+            success: o.status.success(),
+            message: if o.status.success() {
+                "已触发".to_string()
+            } else {
+                String::from_utf8_lossy(&o.stderr).trim().to_string()
+            },
+            logs: vec![],
+        },
+        Err(e) => StepResult {
+            success: false,
+            message: format!("触发失败: {e}"),
+            logs: vec![],
+        },
+    }
+}
+
+#[derive(Serialize)]
+struct SessionSummary {
+    session_key: String,
+    agent_id: String,
+    agent_name: String,
+    status: String,
+    last_active_ms: Option<u64>,
+    last_channel: String,
+    session_id: String,
+}
+
+#[tauri::command]
+fn list_all_sessions() -> Vec<SessionSummary> {
+    let Some(config) = read_openclaw_json_config() else { return vec![] };
+    let Some(agents) = config.get("agents").and_then(|a| a.get("list")).and_then(|l| l.as_array()) else {
+        return vec![];
+    };
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let mut result = Vec::new();
+
+    for agent in agents {
+        let id = match agent.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id.to_string(),
+            None => continue,
+        };
+        let name = agent.get("name").or_else(|| agent.get("identity").and_then(|i| i.get("name")))
+            .and_then(|n| n.as_str()).unwrap_or(&id).to_string();
+
+        let sessions_file = format!("{home}/.openclaw/agents/{id}/sessions/sessions.json");
+        if let Ok(content) = std::fs::read_to_string(&sessions_file) {
+            if let Ok(sessions_val) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(map) = sessions_val.as_object() {
+                    for (key, session) in map {
+                        let updated = session.get("updatedAt").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let session_id = session.get("sessionId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let last_channel = session.get("lastChannel").and_then(|v| v.as_str())
+                            .or_else(|| session.get("origin").and_then(|o| o.get("provider")).and_then(|v| v.as_str()))
+                            .unwrap_or("unknown").to_string();
+
+                        let diff_ms = now_ms.saturating_sub(updated);
+                        let status = if updated == 0 {
+                            "unknown".to_string()
+                        } else if diff_ms < 5 * 60 * 1000 {
+                            "active".to_string()
+                        } else if diff_ms < 60 * 60 * 1000 {
+                            "idle".to_string()
+                        } else {
+                            "offline".to_string()
+                        };
+
+                        result.push(SessionSummary {
+                            session_key: key.clone(),
+                            agent_id: id.clone(),
+                            agent_name: name.clone(),
+                            status,
+                            last_active_ms: if updated > 0 { Some(updated) } else { None },
+                            last_channel,
+                            session_id,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by last_active descending
+    result.sort_by(|a, b| {
+        b.last_active_ms.unwrap_or(0).cmp(&a.last_active_ms.unwrap_or(0))
+    });
+    result
+}
+
+// --- Health Check ---
+
+#[derive(Serialize)]
+struct HealthItem {
+    key: String,
+    label: String,
+    status: String,    // "ok" | "warn" | "error"
+    value: String,     // current value or description
+    suggestion: String, // fix suggestion when not ok
+}
+
+#[tauri::command]
+fn health_check() -> Vec<HealthItem> {
+    let mut items = Vec::new();
+
+    let home = std::env::var("HOME").unwrap_or_default();
+
+    // 1. OpenClaw 版本
+    match run_cmd("openclaw", &["--version"]) {
+        Ok(v) => items.push(HealthItem {
+            key: "openclaw_version".into(),
+            label: "OpenClaw 版本".into(),
+            status: "ok".into(),
+            value: v.trim().to_string(),
+            suggestion: String::new(),
+        }),
+        Err(_) => items.push(HealthItem {
+            key: "openclaw_version".into(),
+            label: "OpenClaw 版本".into(),
+            status: "error".into(),
+            value: "未找到".into(),
+            suggestion: "运行 npm install -g openclaw 安装".into(),
+        }),
+    }
+
+    // 2. Node.js 版本
+    match run_cmd("node", &["--version"]) {
+        Ok(v) => {
+            let ver = v.trim().to_string();
+            let major: u32 = ver.trim_start_matches('v').split('.').next()
+                .and_then(|s| s.parse().ok()).unwrap_or(0);
+            items.push(HealthItem {
+                key: "node_version".into(),
+                label: "Node.js 版本".into(),
+                status: if major >= 18 { "ok".into() } else { "warn".into() },
+                value: ver,
+                suggestion: if major >= 18 { String::new() } else { "建议升级到 Node.js 18+".into() },
+            });
+        }
+        Err(_) => items.push(HealthItem {
+            key: "node_version".into(),
+            label: "Node.js 版本".into(),
+            status: "error".into(),
+            value: "未找到".into(),
+            suggestion: "安装 Node.js 18+".into(),
+        }),
+    }
+
+    // 3. 配置文件可读性
+    let config_yaml = format!("{home}/.openclaw/config.yaml");
+    let config_json = format!("{home}/.openclaw/openclaw.json");
+    let yaml_ok = std::fs::metadata(&config_yaml).is_ok();
+    let json_ok = std::fs::metadata(&config_json).is_ok();
+    items.push(HealthItem {
+        key: "config_files".into(),
+        label: "配置文件".into(),
+        status: if yaml_ok && json_ok { "ok".into() } else if yaml_ok || json_ok { "warn".into() } else { "error".into() },
+        value: format!("config.yaml {}, openclaw.json {}",
+            if yaml_ok { "✓" } else { "✗" },
+            if json_ok { "✓" } else { "✗" }),
+        suggestion: if !yaml_ok || !json_ok { format!("检查 {home}/.openclaw/ 目录") } else { String::new() },
+    });
+
+    // 4. Gateway 连接
+    let gw_running = check_network("127.0.0.1", 18789);
+    items.push(HealthItem {
+        key: "gateway".into(),
+        label: "Gateway 连接".into(),
+        status: if gw_running { "ok".into() } else { "error".into() },
+        value: if gw_running { "http://localhost:18789 运行中".into() } else { "未运行".into() },
+        suggestion: if gw_running { String::new() } else { "前往总览页面启动 Gateway".into() },
+    });
+
+    // 5. 模型可用性（从配置中读取 provider）
+    let model_status = if let Ok(content) = std::fs::read_to_string(&config_yaml) {
+        let provider = content.lines()
+            .find(|l| l.trim().starts_with("provider:"))
+            .map(|l| l.trim().trim_start_matches("provider:").trim().trim_matches('"').to_string())
+            .unwrap_or_default();
+        let base_url = content.lines()
+            .find(|l| l.trim().starts_with("base_url:") || l.trim().starts_with("baseUrl:"))
+            .map(|l| l.trim().split(':').skip(1).collect::<Vec<_>>().join(":").trim().trim_matches('"').to_string())
+            .unwrap_or_default();
+
+        if provider.is_empty() {
+            HealthItem {
+                key: "model".into(), label: "模型配置".into(), status: "warn".into(),
+                value: "未配置 provider".into(),
+                suggestion: "在设置中配置 provider".into(),
+            }
+        } else {
+            // Check if API endpoint is reachable
+            let host = if base_url.contains("://") {
+                base_url.split("://").nth(1).unwrap_or("").split('/').next().unwrap_or("").to_string()
+            } else {
+                match provider.as_str() {
+                    "openai" => "api.openai.com".to_string(),
+                    "anthropic" => "api.anthropic.com".to_string(),
+                    _ => String::new(),
+                }
+            };
+            let reachable = !host.is_empty() && check_network(&host, 443);
+            HealthItem {
+                key: "model".into(), label: "模型可用性".into(),
+                status: if reachable { "ok".into() } else { "warn".into() },
+                value: if reachable { format!("{provider} 可访问") } else { format!("{provider} 网络未验证") },
+                suggestion: if reachable { String::new() } else { format!("检查 {provider} API 连通性") },
+            }
+        }
+    } else {
+        HealthItem {
+            key: "model".into(), label: "模型可用性".into(), status: "warn".into(),
+            value: "无法读取配置".into(), suggestion: "检查配置文件".into(),
+        }
+    };
+    items.push(model_status);
+
+    // 6. 渠道连接状态
+    let channel_status = if let Some(config) = read_openclaw_json_config() {
+        let channels = config.get("channels").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+        if channels.is_empty() {
+            HealthItem {
+                key: "channels".into(), label: "渠道状态".into(), status: "warn".into(),
+                value: "未配置渠道".into(), suggestion: "前往渠道页面添加渠道".into(),
+            }
+        } else {
+            let enabled_count = channels.iter()
+                .filter(|c| c.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true))
+                .count();
+            let names: Vec<String> = channels.iter()
+                .filter(|c| c.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true))
+                .filter_map(|c| c.get("type").or_else(|| c.get("name")).and_then(|v| v.as_str()))
+                .map(String::from).collect();
+            HealthItem {
+                key: "channels".into(), label: "渠道状态".into(),
+                status: if enabled_count > 0 { "ok".into() } else { "warn".into() },
+                value: if enabled_count > 0 { format!("{} 个已启用: {}", enabled_count, names.join(", ")) } else { "所有渠道已禁用".into() },
+                suggestion: if enabled_count == 0 { "在渠道页面启用至少一个渠道".into() } else { String::new() },
+            }
+        }
+    } else {
+        HealthItem {
+            key: "channels".into(), label: "渠道状态".into(), status: "warn".into(),
+            value: "无法读取渠道配置".into(), suggestion: String::new(),
+        }
+    };
+    items.push(channel_status);
+
+    items
+}
+
+// --- Backup / Restore ---
+
+#[derive(Serialize, Deserialize)]
+struct ConfigBackup {
+    version: u32,
+    created_at: u64,
+    config_yaml: String,
+    openclaw_json: String,
+}
+
+#[derive(Serialize)]
+struct RestorePreview {
+    success: bool,
+    message: String,
+    config_yaml_diff: String,   // simple before/after summary
+    openclaw_json_diff: String,
+}
+
+#[tauri::command]
+fn backup_config() -> Result<String, String> {
+    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME 目录".to_string())?;
+    let config_yaml = std::fs::read_to_string(format!("{home}/.openclaw/config.yaml"))
+        .unwrap_or_default();
+    let openclaw_json = std::fs::read_to_string(format!("{home}/.openclaw/openclaw.json"))
+        .unwrap_or_default();
+
+    let created_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let backup = ConfigBackup { version: 1, created_at, config_yaml, openclaw_json };
+    serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn preview_restore(backup_json: String) -> RestorePreview {
+    let backup: ConfigBackup = match serde_json::from_str(&backup_json) {
+        Ok(b) => b,
+        Err(e) => return RestorePreview {
+            success: false,
+            message: format!("无效的备份文件: {e}"),
+            config_yaml_diff: String::new(),
+            openclaw_json_diff: String::new(),
+        },
+    };
+
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return RestorePreview {
+            success: false, message: "无法获取 HOME 目录".into(),
+            config_yaml_diff: String::new(), openclaw_json_diff: String::new(),
+        },
+    };
+
+    let cur_yaml = std::fs::read_to_string(format!("{home}/.openclaw/config.yaml")).unwrap_or_default();
+    let cur_json = std::fs::read_to_string(format!("{home}/.openclaw/openclaw.json")).unwrap_or_default();
+
+    let yaml_changed = cur_yaml.trim() != backup.config_yaml.trim();
+    let json_changed = cur_json.trim() != backup.openclaw_json.trim();
+
+    RestorePreview {
+        success: true,
+        message: if !yaml_changed && !json_changed {
+            "备份内容与当前配置相同，无需恢复".into()
+        } else {
+            format!("将覆盖: {}{}",
+                if yaml_changed { "config.yaml " } else { "" },
+                if json_changed { "openclaw.json" } else { "" })
+        },
+        config_yaml_diff: if yaml_changed {
+            format!("当前 {} 字节 → 备份 {} 字节", cur_yaml.len(), backup.config_yaml.len())
+        } else { "无变化".into() },
+        openclaw_json_diff: if json_changed {
+            format!("当前 {} 字节 → 备份 {} 字节", cur_json.len(), backup.openclaw_json.len())
+        } else { "无变化".into() },
+    }
+}
+
+#[tauri::command]
+fn restore_config(backup_json: String) -> StepResult {
+    let backup: ConfigBackup = match serde_json::from_str(&backup_json) {
+        Ok(b) => b,
+        Err(e) => return StepResult { success: false, message: format!("解析失败: {e}"), logs: vec![] },
+    };
+
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(e) => return StepResult { success: false, message: format!("获取 HOME 失败: {e}"), logs: vec![] },
+    };
+
+    let mut restored = Vec::new();
+
+    if !backup.config_yaml.is_empty() {
+        if let Err(e) = std::fs::write(format!("{home}/.openclaw/config.yaml"), &backup.config_yaml) {
+            return StepResult { success: false, message: format!("写入 config.yaml 失败: {e}"), logs: vec![] };
+        }
+        restored.push("config.yaml".to_string());
+    }
+
+    if !backup.openclaw_json.is_empty() {
+        if let Err(e) = std::fs::write(format!("{home}/.openclaw/openclaw.json"), &backup.openclaw_json) {
+            return StepResult { success: false, message: format!("写入 openclaw.json 失败: {e}"), logs: vec![] };
+        }
+        restored.push("openclaw.json".to_string());
+    }
+
+    StepResult {
+        success: true,
+        message: format!("已恢复: {}", restored.join(", ")),
+        logs: restored,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1202,6 +1950,18 @@ pub fn run() {
             run_openclaw_update,
             list_agents,
             get_dashboard_url,
+            get_usage_stats,
+            get_agent_statuses,
+            list_agent_memory_files,
+            read_memory_file,
+            write_memory_file,
+            list_cron_jobs,
+            trigger_cron_job,
+            list_all_sessions,
+            health_check,
+            backup_config,
+            preview_restore,
+            restore_config,
         ])
         .run(tauri::generate_context!())
         .expect("启动应用失败");

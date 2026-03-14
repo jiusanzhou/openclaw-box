@@ -63,3 +63,35 @@ export interface AgentInfo {
   name: string | null;
   workspace: string | null;
 }
+
+export interface DayUsage {
+  date: string;
+  tokens: number;
+}
+
+export interface ContextPressure {
+  session_key: string;
+  agent_id: string;
+  ratio: number;
+  context_window: number;
+  estimated_tokens: number;
+}
+
+export interface UsageStats {
+  available: boolean;
+  today_input: number;
+  today_output: number;
+  today_total: number;
+  daily: DayUsage[];
+  hot_sessions: ContextPressure[];
+}
+
+export interface AgentStatus {
+  id: string;
+  name: string;
+  emoji: string;
+  status: "working" | "idle" | "offline";
+  last_active_ms: number | null;
+  last_session_key: string;
+  minutes_ago: number | null;
+}
