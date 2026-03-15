@@ -1078,8 +1078,18 @@ fn write_openclaw_config(content: String) -> StepResult {
 
 #[tauri::command]
 fn check_openclaw_update(npm_registry: String) -> UpdateInfo {
-    let current_version = run_cmd(&find_openclaw(), &["--version"])
+    let raw_version = run_cmd(&find_openclaw(), &["--version"])
         .unwrap_or_else(|_| "unknown".to_string());
+    
+    // Parse version from output like "OpenClaw 2026.3.13 (61d171a)"
+    let current_version = raw_version
+        .strip_prefix("OpenClaw ")
+        .unwrap_or(&raw_version)
+        .split_whitespace()
+        .next()
+        .unwrap_or(&raw_version)
+        .trim()
+        .to_string();
 
     let npm = find_npm();
     let latest_version = run_cmd(
@@ -1089,7 +1099,9 @@ fn check_openclaw_update(npm_registry: String) -> UpdateInfo {
     .unwrap_or_else(|e| {
         eprintln!("npm view 失败 (npm={}): {}", npm, e);
         current_version.clone()
-    });
+    })
+    .trim()
+    .to_string();
 
     let has_update = current_version != "unknown"
         && latest_version != current_version
