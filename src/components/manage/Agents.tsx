@@ -215,7 +215,10 @@ function CronTab({ agent }: { agent: MergedAgent }) {
     setLoading(true);
     try {
       const all = await invoke<CronJobInfo[]>("list_cron_jobs");
-      setJobs(all.filter((j) => j.agent_id === agent.id));
+      const filtered = all.filter((j) => j.agent_id === agent.id);
+      // Sort by next_run_at descending (most recent first)
+      filtered.sort((a, b) => (b.last_run_at_ms ?? 0) - (a.last_run_at_ms ?? 0));
+      setJobs(filtered);
     } catch {
       setJobs([]);
     }
@@ -335,6 +338,12 @@ function MemoryTab({ agent }: { agent: MergedAgent }) {
     try {
       const files = await invoke<MemoryFileInfo[]>("list_agent_memory_files", {
         workspace: agent.workspace,
+      });
+      // Sort by last_modified descending (most recent first), MEMORY.md always on top
+      files.sort((a, b) => {
+        if (a.name === "MEMORY.md") return -1;
+        if (b.name === "MEMORY.md") return 1;
+        return (b.last_modified ?? 0) - (a.last_modified ?? 0);
       });
       setMemFiles(files);
       const main = files.find((f) => f.name === "MEMORY.md" && f.available);
