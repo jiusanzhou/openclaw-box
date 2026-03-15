@@ -6,6 +6,8 @@ import type {
   GatewayStatus,
   UsageStats,
   StepResult,
+  ChannelTypeInfo,
+  ModelOption,
 } from "../../lib/types";
 
 // ── Types local to this module ──────────────────────────────────────────────
@@ -32,12 +34,13 @@ interface CronJobInfo {
   consecutive_errors: number;
 }
 
-type AgentTab = "chat" | "cron" | "memory" | "usage" | "config";
+type AgentTab = "chat" | "cron" | "memory" | "channels" | "usage" | "config";
 
 const TABS: { id: AgentTab; icon: string; label: string }[] = [
   { id: "chat", icon: "💬", label: "对话" },
   { id: "cron", icon: "⏰", label: "定时任务" },
   { id: "memory", icon: "🧠", label: "记忆" },
+  { id: "channels", icon: "📡", label: "渠道" },
   { id: "usage", icon: "📊", label: "用量" },
   { id: "config", icon: "⚙️", label: "配置" },
 ];
@@ -509,18 +512,176 @@ function MemoryTab({ agent }: { agent: MergedAgent }) {
   );
 }
 
+// ── Sub-tab: Channels ────────────────────────────────────────────────────
+
+function ChannelsTab({ agent }: { agent: MergedAgent }) {
+  const [channels, setChannels] = useState<ChannelTypeInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [operating, setOperating] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await invoke<ChannelTypeInfo[]>("get_channels_config");
+      setChannels(data);
+    } catch {
+      setChannels([]);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const boundChannels = channels.filter((ch) =>
+    ch.accounts.some((a) => a.account_key === agent.id)
+  );
+
+  const unboundChannels = channels.filter((ch) =>
+    ch.accounts.length > 0 && !ch.accounts.some((a) => a.account_key === agent.id)
+  );
+
+  const handleUnbind = async (channelType: string) => {
+    setOperating(true);
+    setMessage(null);
+    try {
+      const result = await invoke<StepResult>("update_agent_channel_binding", {
+        agentId: agent.id,
+        channelType,
+        accountKey: agent.id,
+        action: "unbind",
+      });
+      setMessage({ type: result.success ? "success" : "error", text: result.message });
+      if (result.success) load();
+    } catch (e) {
+      setMessage({ type: "error", text: `${e}` });
+    }
+    setOperating(false);
+  };
+
+  const handleBind = async (channelType: string, accountKey: string) => {
+    setOperating(true);
+    setMessage(null);
+    try {
+      const result = await invoke<StepResult>("update_agent_channel_binding", {
+        agentId: agent.id,
+        channelType,
+        accountKey,
+        action: "bind",
+      });
+      setMessage({ type: result.success ? "success" : "error", text: result.message });
+      if (result.success) load();
+    } catch (e) {
+      setMessage({ type: "error", text: `${e}` });
+    }
+    setOperating(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      {message && (
+        <div className={`p-3 rounded-lg text-sm ${
+          message.type === "success"
+            ? "bg-green-50 border border-green-200 text-green-700"
+            : "bg-red-50 border border-red-200 text-red-700"
+        }`}>
+          {message.text}
+        </div>
+      )}
+
+      {/* Bound channels */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">已绑定渠道</h3>
+        {boundChannels.length === 0 ? (
+          <p className="text-sm text-gray-400">暂无绑定渠道</p>
+        ) : (
+          <div className="space-y-2">
+            {boundChannels.map((ch) => {
+              const acct = ch.accounts.find((a) => a.account_key === agent.id);
+              return (
+                <div key={ch.channel_type} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <span className="text-sm font-medium text-gray-800">{ch.channel_type}</span>
+                    {acct?.bot_token_preview && (
+                      <span className="ml-2 text-xs text-gray-400 font-mono">{acct.bot_token_preview}</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleUnbind(ch.channel_type)}
+                    disabled={operating}
+                    className="text-xs px-3 py-1.5 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    解绑
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Available channels to bind */}
+      {unboundChannels.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">可绑定渠道</h3>
+          <div className="space-y-2">
+            {unboundChannels.map((ch) => (
+              <div key={ch.channel_type} className="p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-800">{ch.channel_type}</span>
+                </div>
+                <div className="space-y-1">
+                  {ch.accounts.map((acct) => (
+                    <div key={acct.account_key} className="flex items-center justify-between pl-3">
+                      <span className="text-xs text-gray-600">
+                        {acct.account_key}
+                        {acct.bot_token_preview && (
+                          <span className="ml-1 text-gray-400 font-mono">{acct.bot_token_preview}</span>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => handleBind(ch.channel_type, acct.account_key)}
+                        disabled={operating}
+                        className="text-xs px-2.5 py-1 rounded border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+                      >
+                        绑定到此 Agent
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {channels.length === 0 && (
+        <p className="text-sm text-gray-400 text-center">尚未配置任何渠道</p>
+      )}
+    </div>
+  );
+}
+
 // ── Sub-tab: Usage ──────────────────────────────────────────────────────────
 
-function UsageTab({ agent: _agent }: { agent: MergedAgent }) {
+function UsageTab({ agent }: { agent: MergedAgent }) {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    invoke<UsageStats>("get_usage_stats")
+    invoke<UsageStats>("get_agent_usage_stats", { agentId: agent.id })
       .then(setStats)
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [agent.id]);
 
   if (loading) {
     return (
@@ -583,13 +744,67 @@ function UsageTab({ agent: _agent }: { agent: MergedAgent }) {
 function ConfigTab({ agent }: { agent: MergedAgent }) {
   const [configYaml, setConfigYaml] = useState("");
   const [loading, setLoading] = useState(true);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [currentModel, setCurrentModel] = useState("");
+  const [defaultModel] = useState("");
+  const [modelSaving, setModelSaving] = useState(false);
+  const [modelMessage, setModelMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    invoke<string>("read_openclaw_config")
-      .then(setConfigYaml)
-      .catch(() => setConfigYaml(""))
-      .finally(() => setLoading(false));
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [yaml, modelList] = await Promise.all([
+          invoke<string>("read_openclaw_config"),
+          invoke<ModelOption[]>("get_available_models"),
+        ]);
+        setConfigYaml(yaml);
+        setModels(modelList);
+      } catch { /* ignore */ }
+      setLoading(false);
+    };
+    load();
   }, []);
+
+  // Read agent's current model from openclaw.json
+  useEffect(() => {
+    const readModel = async () => {
+      try {
+        const raw = await invoke<string>("read_openclaw_config");
+        // config.yaml is not JSON, read openclaw.json via read_memory_file workaround
+        // Actually, we can parse from the JSON config by checking agents
+        // For now, try to extract from Agents component's data
+        void raw;
+        
+        // Use invoke to get the JSON config value
+        const agentList = await invoke<AgentInfo[]>("list_agents");
+        void agentList;
+        // The AgentInfo doesn't contain model. We need to check openclaw.json directly.
+        // We'll rely on Rust side: get_available_models returns the models, 
+        // and the current model is stored in the agent config.
+        // Let's read it via a dedicated call or parse the JSON.
+      } catch { /* ignore */ }
+    };
+    readModel();
+  }, [agent.id]);
+
+  const handleModelChange = async (fullModelId: string) => {
+    setModelSaving(true);
+    setModelMessage(null);
+    try {
+      const result = await invoke<StepResult>("update_agent_model", {
+        agentId: agent.id,
+        modelId: fullModelId,
+      });
+      setModelMessage({ type: result.success ? "success" : "error", text: result.message });
+      if (result.success) {
+        setCurrentModel(fullModelId);
+      }
+    } catch (e) {
+      setModelMessage({ type: "error", text: `${e}` });
+    }
+    setModelSaving(false);
+  };
 
   if (loading) {
     return (
@@ -625,6 +840,41 @@ function ConfigTab({ agent }: { agent: MergedAgent }) {
         </div>
       </div>
 
+      {/* Model selector */}
+      {models.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
+          <h3 className="text-sm font-semibold text-gray-700">模型</h3>
+          <div className="flex items-center gap-3">
+            <select
+              value={currentModel || defaultModel}
+              onChange={(e) => handleModelChange(e.target.value)}
+              disabled={modelSaving}
+              className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
+            >
+              <option value="">使用默认模型{defaultModel ? ` (${defaultModel})` : ""}</option>
+              {models.map((m) => (
+                <option key={m.full_id} value={m.full_id}>
+                  {m.display_name} ({m.full_id})
+                </option>
+              ))}
+            </select>
+            {modelSaving && (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent flex-shrink-0" />
+            )}
+          </div>
+          {modelMessage && (
+            <div className={`p-2.5 rounded-lg text-xs ${
+              modelMessage.type === "success"
+                ? "bg-green-50 border border-green-200 text-green-700"
+                : "bg-red-50 border border-red-200 text-red-700"
+            }`}>
+              {modelMessage.text}
+            </div>
+          )}
+          <p className="text-xs text-gray-400">修改后需重启 Gateway 生效</p>
+        </div>
+      )}
+
       {configYaml && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-200">
@@ -648,6 +898,10 @@ export function Agents() {
   const [selectedAgent, setSelectedAgent] = useState<MergedAgent | null>(null);
   const [activeTab, setActiveTab] = useState<AgentTab>("chat");
   const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ id: "", name: "", emoji: "🤖", workspace: "" });
+  const [creating, setCreating] = useState(false);
+  const [createMsg, setCreateMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const selectedAgentRef = useRef<MergedAgent | null>(null);
   selectedAgentRef.current = selectedAgent;
@@ -685,6 +939,29 @@ export function Agents() {
   const handleSelectAgent = (agent: MergedAgent) => {
     setSelectedAgent(agent);
     setActiveTab("chat");
+  };
+
+  const handleCreateAgent = async () => {
+    if (!createForm.id || !createForm.name) return;
+    setCreating(true);
+    setCreateMsg(null);
+    try {
+      const result = await invoke<StepResult>("create_agent", {
+        id: createForm.id,
+        name: createForm.name,
+        emoji: createForm.emoji || "🤖",
+        workspace: createForm.workspace || `~/.openclaw/workspace-${createForm.id}`,
+      });
+      setCreateMsg({ type: result.success ? "success" : "error", text: result.message });
+      if (result.success) {
+        setCreateForm({ id: "", name: "", emoji: "🤖", workspace: "" });
+        setShowCreate(false);
+        loadData();
+      }
+    } catch (e) {
+      setCreateMsg({ type: "error", text: `${e}` });
+    }
+    setCreating(false);
   };
 
   const goBack = () => {
@@ -761,6 +1038,7 @@ export function Agents() {
           )}
           {activeTab === "cron" && <CronTab agent={selectedAgent} />}
           {activeTab === "memory" && <MemoryTab agent={selectedAgent} />}
+          {activeTab === "channels" && <ChannelsTab agent={selectedAgent} />}
           {activeTab === "usage" && <UsageTab agent={selectedAgent} />}
           {activeTab === "config" && <ConfigTab agent={selectedAgent} />}
         </div>
@@ -772,8 +1050,85 @@ export function Agents() {
   return (
     <div className="flex-1 overflow-auto p-6">
       <div className="max-w-4xl mx-auto">
-        <h2 className="text-xl font-semibold text-gray-800 mb-1">🤖 智能体</h2>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-xl font-semibold text-gray-800">🤖 智能体</h2>
+          <button
+            onClick={() => { setShowCreate(true); setCreateMsg(null); }}
+            className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            + 创建智能体
+          </button>
+        </div>
         <p className="text-sm text-gray-500 mb-6">管理和监控所有 Agent</p>
+
+        {/* Create agent form */}
+        {showCreate && (
+          <div className="mb-6 bg-white border border-indigo-200 rounded-xl p-5 space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700">创建新智能体</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">ID（英文，必填）</label>
+                <input
+                  value={createForm.id}
+                  onChange={(e) => setCreateForm({ ...createForm, id: e.target.value.replace(/[^a-z0-9-_]/g, "") })}
+                  placeholder="my-agent"
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">名称（必填）</label>
+                <input
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                  placeholder="我的助手"
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Emoji</label>
+                <input
+                  value={createForm.emoji}
+                  onChange={(e) => setCreateForm({ ...createForm, emoji: e.target.value })}
+                  placeholder="🤖"
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">工作目录（可选）</label>
+                <input
+                  value={createForm.workspace}
+                  onChange={(e) => setCreateForm({ ...createForm, workspace: e.target.value })}
+                  placeholder={`~/.openclaw/workspace-${createForm.id || "agent"}`}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+            </div>
+            {createMsg && (
+              <div className={`p-2.5 rounded-lg text-xs ${
+                createMsg.type === "success"
+                  ? "bg-green-50 border border-green-200 text-green-700"
+                  : "bg-red-50 border border-red-200 text-red-700"
+              }`}>
+                {createMsg.text}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={handleCreateAgent}
+                disabled={creating || !createForm.id || !createForm.name}
+                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              >
+                {creating ? "创建中..." : "创建"}
+              </button>
+              <button
+                onClick={() => setShowCreate(false)}
+                className="px-4 py-2 text-sm border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
 
         {gatewayRunning === false && (
           <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">

@@ -95,3 +95,22 @@ export interface AgentStatus {
   last_session_key: string;
   minutes_ago: number | null;
 }
+
+export interface ChannelAccountInfo {
+  account_key: string;
+  agent_id: string;
+  bot_token_preview: string;
+}
+
+export interface ChannelTypeInfo {
+  channel_type: string;
+  accounts: ChannelAccountInfo[];
+  extra: Record<string, unknown>;
+}
+
+export interface ModelOption {
+  provider: string;
+  model_id: string;
+  display_name: string;
+  full_id: string;
+}

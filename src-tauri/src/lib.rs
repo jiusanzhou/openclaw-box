@@ -897,6 +897,32 @@ fn find_openclaw() -> String {
     "openclaw".to_string()
 }
 
+fn find_npm() -> String {
+    let enriched = get_enriched_path();
+    for dir in enriched.split(':') {
+        let candidate = format!("{dir}/npm");
+        if std::path::Path::new(&candidate).exists() {
+            return candidate;
+        }
+    }
+
+    // Try `which npm` with enriched PATH
+    if let Ok(output) = Command::new("which")
+        .arg("npm")
+        .env("PATH", &enriched)
+        .output()
+    {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+
+    "npm".to_string()
+}
+
 fn run_openclaw_cmd(cmd: &str, subcmd: &str) -> StepResult {
     match Command::new(&find_openclaw()).args([cmd, subcmd]).output() {
         Ok(o) => StepResult {
@@ -1052,14 +1078,18 @@ fn write_openclaw_config(content: String) -> StepResult {
 
 #[tauri::command]
 fn check_openclaw_update(npm_registry: String) -> UpdateInfo {
-    let current_version = run_cmd("openclaw", &["--version"])
+    let current_version = run_cmd(&find_openclaw(), &["--version"])
         .unwrap_or_else(|_| "unknown".to_string());
 
+    let npm = find_npm();
     let latest_version = run_cmd(
-        "npm",
+        &npm,
         &["view", "openclaw", "version", "--registry", &npm_registry],
     )
-    .unwrap_or_else(|_| current_version.clone());
+    .unwrap_or_else(|e| {
+        eprintln!("npm view 失败 (npm={}): {}", npm, e);
+        current_version.clone()
+    });
 
     let has_update = current_version != "unknown"
         && latest_version != current_version
@@ -1077,23 +1107,24 @@ fn check_openclaw_update(npm_registry: String) -> UpdateInfo {
 
 #[tauri::command]
 fn run_openclaw_update(npm_registry: String, version: String) -> StepResult {
+    let npm = find_npm();
     let pkg = format!("openclaw@{}", version);
-    match run_cmd_combined("npm", &["install", "-g", &pkg, "--registry", &npm_registry]) {
+    match run_cmd_combined(&npm, &["install", "-g", &pkg, "--registry", &npm_registry]) {
         Ok(output) => {
-            let success = run_cmd("openclaw", &["--version"]).is_ok();
+            let success = run_cmd(&find_openclaw(), &["--version"]).is_ok();
             StepResult {
                 success,
                 message: if success {
                     format!("已更新到 {}", version)
                 } else {
-                    "更新命令执行完成但验证失败".to_string()
+                    format!("更新命令执行完成但验证失败 (npm={})", npm)
                 },
                 logs: output.lines().map(|l| l.to_string()).collect(),
             }
         }
         Err(e) => StepResult {
             success: false,
-            message: format!("更新失败: {}", e),
+            message: format!("更新失败 (npm={}): {}", npm, e),
             logs: vec![],
         },
     }
@@ -1922,6 +1953,429 @@ fn restore_config(backup_json: String) -> StepResult {
     }
 }
 
+// --- Write openclaw.json helper ---
+
+fn write_openclaw_json_config(config: &serde_json::Value) -> Result<(), String> {
+    let home = std::env::var("HOME").map_err(|_| "无法获取 HOME".to_string())?;
+    let path = format!("{home}/.openclaw/openclaw.json");
+    let content = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("序列化失败: {e}"))?;
+    std::fs::write(&path, &content)
+        .map_err(|e| format!("写入 openclaw.json 失败: {e}"))
+}
+
+// --- Create Agent ---
+
+#[tauri::command]
+fn create_agent(id: String, name: String, emoji: String, workspace: String) -> StepResult {
+    let mut config = match read_openclaw_json_config() {
+        Some(c) => c,
+        None => return StepResult {
+            success: false,
+            message: "无法读取 openclaw.json".to_string(),
+            logs: vec![],
+        },
+    };
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let actual_workspace = if workspace.is_empty() {
+        format!("{home}/.openclaw/agents/{id}/workspace")
+    } else {
+        workspace
+    };
+
+    // Build new agent object
+    let new_agent = serde_json::json!({
+        "id": id,
+        "name": name,
+        "workspace": actual_workspace,
+        "identity": {
+            "name": name,
+            "emoji": if emoji.is_empty() { "🤖" } else { &emoji }
+        }
+    });
+
+    // Ensure agents.list exists
+    if config.get("agents").is_none() {
+        config["agents"] = serde_json::json!({"list": [], "defaults": {}});
+    }
+    if config["agents"].get("list").is_none() {
+        config["agents"]["list"] = serde_json::json!([]);
+    }
+
+    // Check for duplicate ID
+    if let Some(list) = config["agents"]["list"].as_array() {
+        if list.iter().any(|a| a.get("id").and_then(|v| v.as_str()) == Some(&id)) {
+            return StepResult {
+                success: false,
+                message: format!("Agent ID '{}' 已存在", id),
+                logs: vec![],
+            };
+        }
+    }
+
+    config["agents"]["list"].as_array_mut().unwrap().push(new_agent);
+
+    // Create workspace directory
+    let _ = std::fs::create_dir_all(&actual_workspace);
+
+    match write_openclaw_json_config(&config) {
+        Ok(_) => StepResult {
+            success: true,
+            message: format!("Agent '{}' 已创建。请重启 Gateway 使其生效。", name),
+            logs: vec![],
+        },
+        Err(e) => StepResult {
+            success: false,
+            message: e,
+            logs: vec![],
+        },
+    }
+}
+
+// --- Agent Usage Stats (per agent) ---
+
+#[tauri::command]
+fn get_agent_usage_stats(agent_id: String) -> UsageStats {
+    let empty = UsageStats {
+        available: false,
+        today_input: 0,
+        today_output: 0,
+        today_total: 0,
+        daily: vec![],
+        hot_sessions: vec![],
+    };
+
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return empty,
+    };
+
+    let sessions_file = format!("{home}/.openclaw/agents/{agent_id}/sessions/sessions.json");
+    let content = match std::fs::read_to_string(&sessions_file) {
+        Ok(c) => c,
+        Err(_) => return empty,
+    };
+    let sessions_val: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return empty,
+    };
+    let sessions_map = match sessions_val.as_object() {
+        Some(m) => m,
+        None => return empty,
+    };
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let today_start_ms = (now_ms / 86_400_000) * 86_400_000;
+    let today_date = ms_to_date_utc(today_start_ms);
+
+    let day_dates: Vec<String> = (0..7u64).rev().map(|i| {
+        ms_to_date_utc(today_start_ms - i * 86_400_000)
+    }).collect();
+
+    let mut daily_tokens: std::collections::HashMap<String, u64> = day_dates.iter()
+        .map(|d| (d.clone(), 0u64)).collect();
+
+    let mut today_input: u64 = 0;
+    let mut today_output: u64 = 0;
+    let mut hot_sessions: Vec<ContextPressure> = vec![];
+    let mut any_data = false;
+
+    for (session_key, session) in sessions_map {
+        let input = session.get("inputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
+        let output = session.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
+        let updated = session.get("updatedAt").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        if updated == 0 || (input == 0 && output == 0) { continue }
+        any_data = true;
+
+        let date = ms_to_date_utc(updated);
+        if let Some(day_total) = daily_tokens.get_mut(&date) {
+            *day_total += input + output;
+        }
+        if date == today_date {
+            today_input += input;
+            today_output += output;
+        }
+
+        let session_file = session.get("sessionFile").and_then(|v| v.as_str()).unwrap_or("");
+        let context_window = session.get("contextTokens").and_then(|v| v.as_u64())
+            .filter(|&v| v > 0).unwrap_or(200_000);
+
+        if !session_file.is_empty() {
+            if let Ok(meta) = std::fs::metadata(session_file) {
+                let estimated_tokens = meta.len() / 4;
+                let ratio = (estimated_tokens as f64 / context_window as f64).min(1.0);
+                if ratio > 0.5 {
+                    hot_sessions.push(ContextPressure {
+                        session_key: session_key.clone(),
+                        agent_id: agent_id.clone(),
+                        ratio,
+                        context_window,
+                        estimated_tokens,
+                    });
+                }
+            }
+        }
+    }
+
+    if !any_data { return empty; }
+
+    hot_sessions.sort_by(|a, b| b.ratio.partial_cmp(&a.ratio).unwrap_or(std::cmp::Ordering::Equal));
+    hot_sessions.truncate(5);
+
+    let daily: Vec<DayUsage> = day_dates.into_iter()
+        .map(|d| DayUsage { tokens: daily_tokens.get(&d).copied().unwrap_or(0), date: d })
+        .collect();
+
+    UsageStats {
+        available: true,
+        today_input,
+        today_output,
+        today_total: today_input + today_output,
+        daily,
+        hot_sessions,
+    }
+}
+
+// --- Channels Config ---
+
+#[derive(Serialize)]
+struct ChannelAccountInfo {
+    account_key: String,
+    agent_id: String,  // the account_key IS the agent_id in telegram
+    bot_token_preview: String,
+}
+
+#[derive(Serialize)]
+struct ChannelTypeInfo {
+    channel_type: String,
+    accounts: Vec<ChannelAccountInfo>,
+    extra: serde_json::Value,  // other fields like "enabled" for kim
+}
+
+#[tauri::command]
+fn get_channels_config() -> Vec<ChannelTypeInfo> {
+    let Some(config) = read_openclaw_json_config() else { return vec![] };
+    let Some(channels) = config.get("channels").and_then(|c| c.as_object()) else {
+        return vec![];
+    };
+
+    channels.iter().map(|(ch_type, ch_val)| {
+        let mut accounts = Vec::new();
+
+        // For telegram-like channels with accounts map
+        if let Some(accts) = ch_val.get("accounts").and_then(|a| a.as_object()) {
+            for (key, acct) in accts {
+                let token = acct.get("botToken").and_then(|v| v.as_str()).unwrap_or("");
+                let preview = if token.len() > 10 {
+                    format!("{}...{}", &token[..5], &token[token.len()-4..])
+                } else if !token.is_empty() {
+                    "***".to_string()
+                } else {
+                    String::new()
+                };
+                accounts.push(ChannelAccountInfo {
+                    account_key: key.clone(),
+                    agent_id: key.clone(),
+                    bot_token_preview: preview,
+                });
+            }
+        }
+
+        // Clone the channel value but remove accounts for extra
+        let mut extra = ch_val.clone();
+        if let Some(obj) = extra.as_object_mut() {
+            obj.remove("accounts");
+        }
+
+        ChannelTypeInfo {
+            channel_type: ch_type.clone(),
+            accounts,
+            extra,
+        }
+    }).collect()
+}
+
+// --- Agent Channel Binding ---
+
+#[tauri::command]
+fn update_agent_channel_binding(
+    agent_id: String,
+    channel_type: String,
+    account_key: String,
+    action: String,
+) -> StepResult {
+    let mut config = match read_openclaw_json_config() {
+        Some(c) => c,
+        None => return StepResult {
+            success: false,
+            message: "无法读取 openclaw.json".to_string(),
+            logs: vec![],
+        },
+    };
+
+    if action == "bind" {
+        // For telegram: channels.telegram.accounts.<agent_id> = account config
+        // Binding means copying/moving the account under the agent_id key
+        // Actually the data structure says the key IS the agent id
+        // So "bind" means: ensure channels.<type>.accounts.<agent_id> exists
+        // For now we just create a placeholder entry if it doesn't exist
+        if config.get("channels").is_none() {
+            config["channels"] = serde_json::json!({});
+        }
+        if config["channels"].get(&channel_type).is_none() {
+            config["channels"][&channel_type] = serde_json::json!({"accounts": {}});
+        }
+        if config["channels"][&channel_type].get("accounts").is_none() {
+            config["channels"][&channel_type]["accounts"] = serde_json::json!({});
+        }
+
+        // If binding from an existing account_key to agent_id
+        if account_key != agent_id {
+            // Copy the account config from account_key to agent_id
+            let existing = config["channels"][&channel_type]["accounts"]
+                .get(&account_key).cloned();
+            if let Some(acct) = existing {
+                config["channels"][&channel_type]["accounts"][&agent_id] = acct;
+            } else {
+                return StepResult {
+                    success: false,
+                    message: format!("账号 '{}' 不存在", account_key),
+                    logs: vec![],
+                };
+            }
+        }
+    } else if action == "unbind" {
+        // Remove the account entry for this agent
+        if let Some(accounts) = config
+            .get_mut("channels")
+            .and_then(|c| c.get_mut(&channel_type))
+            .and_then(|t| t.get_mut("accounts"))
+            .and_then(|a| a.as_object_mut())
+        {
+            accounts.remove(&agent_id);
+        }
+    } else {
+        return StepResult {
+            success: false,
+            message: format!("未知操作: {}", action),
+            logs: vec![],
+        };
+    }
+
+    match write_openclaw_json_config(&config) {
+        Ok(_) => StepResult {
+            success: true,
+            message: format!("渠道绑定已更新。请重启 Gateway 使其生效。"),
+            logs: vec![],
+        },
+        Err(e) => StepResult {
+            success: false,
+            message: e,
+            logs: vec![],
+        },
+    }
+}
+
+// --- Available Models ---
+
+#[derive(Serialize)]
+struct ModelOption {
+    provider: String,
+    model_id: String,
+    display_name: String,
+    full_id: String,  // "provider/model_id"
+}
+
+#[tauri::command]
+fn get_available_models() -> Vec<ModelOption> {
+    let Some(config) = read_openclaw_json_config() else { return vec![] };
+    let Some(providers) = config.get("models")
+        .and_then(|m| m.get("providers"))
+        .and_then(|p| p.as_object()) else {
+        return vec![];
+    };
+
+    let mut result = Vec::new();
+    for (provider_name, provider_val) in providers {
+        if let Some(models) = provider_val.get("models").and_then(|m| m.as_array()) {
+            for model in models {
+                let model_id = model.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let display_name = model.get("name").and_then(|v| v.as_str())
+                    .unwrap_or(&model_id).to_string();
+                let full_id = format!("{}/{}", provider_name, model_id);
+                result.push(ModelOption {
+                    provider: provider_name.clone(),
+                    model_id,
+                    display_name,
+                    full_id,
+                });
+            }
+        }
+    }
+    result
+}
+
+// --- Update Agent Model ---
+
+#[tauri::command]
+fn update_agent_model(agent_id: String, model_id: String) -> StepResult {
+    let mut config = match read_openclaw_json_config() {
+        Some(c) => c,
+        None => return StepResult {
+            success: false,
+            message: "无法读取 openclaw.json".to_string(),
+            logs: vec![],
+        },
+    };
+
+    let agents_list = match config.get_mut("agents")
+        .and_then(|a| a.get_mut("list"))
+        .and_then(|l| l.as_array_mut()) {
+        Some(l) => l,
+        None => return StepResult {
+            success: false,
+            message: "agents.list 不存在".to_string(),
+            logs: vec![],
+        },
+    };
+
+    let agent = match agents_list.iter_mut().find(|a| {
+        a.get("id").and_then(|v| v.as_str()) == Some(&agent_id)
+    }) {
+        Some(a) => a,
+        None => return StepResult {
+            success: false,
+            message: format!("未找到 agent '{}'", agent_id),
+            logs: vec![],
+        },
+    };
+
+    // Set model.primary
+    if agent.get("model").is_none() {
+        agent["model"] = serde_json::json!({});
+    }
+    agent["model"]["primary"] = serde_json::Value::String(model_id.clone());
+
+    match write_openclaw_json_config(&config) {
+        Ok(_) => StepResult {
+            success: true,
+            message: format!("模型已切换为 {}。请重启 Gateway 使其生效。", model_id),
+            logs: vec![],
+        },
+        Err(e) => StepResult {
+            success: false,
+            message: e,
+            logs: vec![],
+        },
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1962,6 +2416,12 @@ pub fn run() {
             backup_config,
             preview_restore,
             restore_config,
+            create_agent,
+            get_agent_usage_stats,
+            get_channels_config,
+            update_agent_channel_binding,
+            get_available_models,
+            update_agent_model,
         ])
         .run(tauri::generate_context!())
         .expect("启动应用失败");
