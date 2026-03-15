@@ -2144,10 +2144,10 @@ fn get_agent_usage_stats(agent_id: String) -> UsageStats {
 
 // --- Channels Config ---
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct ChannelAccountInfo {
     account_key: String,
-    agent_id: String,  // the account_key IS the agent_id in telegram
+    agent_id: String,
     bot_token_preview: String,
 }
 
@@ -2155,7 +2155,15 @@ struct ChannelAccountInfo {
 struct ChannelTypeInfo {
     channel_type: String,
     accounts: Vec<ChannelAccountInfo>,
-    extra: serde_json::Value,  // other fields like "enabled" for kim
+    bindings: Vec<ChannelBindingInfo>,
+    extra: serde_json::Value,
+}
+
+#[derive(Serialize, Clone)]
+struct ChannelBindingInfo {
+    agent_id: String,
+    account_id: String,
+    match_details: String,
 }
 
 #[tauri::command]
@@ -2164,6 +2172,9 @@ fn get_channels_config() -> Vec<ChannelTypeInfo> {
     let Some(channels) = config.get("channels").and_then(|c| c.as_object()) else {
         return vec![];
     };
+
+    // Read bindings array
+    let bindings_arr = config.get("bindings").and_then(|b| b.as_array());
 
     channels.iter().map(|(ch_type, ch_val)| {
         let mut accounts = Vec::new();
@@ -2187,6 +2198,45 @@ fn get_channels_config() -> Vec<ChannelTypeInfo> {
             }
         }
 
+        // Find bindings for this channel type
+        let mut channel_bindings = Vec::new();
+        if let Some(bindings) = bindings_arr {
+            for binding in bindings {
+                let match_obj = binding.get("match");
+                let match_channel = match_obj
+                    .and_then(|m| m.get("channel"))
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("");
+                
+                if match_channel == ch_type.as_str() {
+                    let agent_id = binding.get("agentId")
+                        .and_then(|a| a.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let account_id = match_obj
+                        .and_then(|m| m.get("accountId"))
+                        .and_then(|a| a.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    
+                    // Build match details string
+                    let details = if !account_id.is_empty() {
+                        format!("account: {}", account_id)
+                    } else if let Some(peer) = match_obj.and_then(|m| m.get("peer")) {
+                        format!("peer: {}", serde_json::to_string(peer).unwrap_or_default())
+                    } else {
+                        "全部消息".to_string()
+                    };
+
+                    channel_bindings.push(ChannelBindingInfo {
+                        agent_id,
+                        account_id,
+                        match_details: details,
+                    });
+                }
+            }
+        }
+
         // Clone the channel value but remove accounts for extra
         let mut extra = ch_val.clone();
         if let Some(obj) = extra.as_object_mut() {
@@ -2196,6 +2246,7 @@ fn get_channels_config() -> Vec<ChannelTypeInfo> {
         ChannelTypeInfo {
             channel_type: ch_type.clone(),
             accounts,
+            bindings: channel_bindings,
             extra,
         }
     }).collect()

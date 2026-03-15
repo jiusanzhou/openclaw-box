@@ -7,6 +7,7 @@ import type {
   UsageStats,
   StepResult,
   ChannelTypeInfo,
+  ChannelBindingInfo,
   ModelOption,
 } from "../../lib/types";
 
@@ -182,8 +183,8 @@ function ChatTab({ agent, dashboardUrl }: { agent: MergedAgent; dashboardUrl: st
   const iframeSrc = `${dashboardUrl}?session=${encodeURIComponent(agent.id)}`;
 
   return (
-    <div className="flex-1 flex flex-col">
-      <div className="flex items-center justify-end px-4 py-2 border-b border-gray-100 bg-gray-50">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex items-center justify-end px-4 py-2 border-b border-gray-100 bg-gray-50 flex-shrink-0">
         <button
           onClick={() => iframeRef.current && (iframeRef.current.src = iframeRef.current.src)}
           className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 bg-white hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
@@ -194,8 +195,9 @@ function ChatTab({ agent, dashboardUrl }: { agent: MergedAgent; dashboardUrl: st
       <iframe
         ref={iframeRef}
         src={iframeSrc}
-        className="flex-1 w-full border-0"
+        className="flex-1 w-full border-0 min-h-0"
         title="OpenClaw 对话"
+        style={{ minHeight: 0 }}
       />
     </div>
   );
@@ -517,8 +519,6 @@ function MemoryTab({ agent }: { agent: MergedAgent }) {
 function ChannelsTab({ agent }: { agent: MergedAgent }) {
   const [channels, setChannels] = useState<ChannelTypeInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [operating, setOperating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -533,49 +533,20 @@ function ChannelsTab({ agent }: { agent: MergedAgent }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const boundChannels = channels.filter((ch) =>
-    ch.accounts.some((a) => a.account_key === agent.id)
-  );
+  // Find bindings for this agent across all channels
+  const myBindings: { channel: string; binding: ChannelBindingInfo }[] = [];
+  const otherChannels: ChannelTypeInfo[] = [];
 
-  const unboundChannels = channels.filter((ch) =>
-    ch.accounts.length > 0 && !ch.accounts.some((a) => a.account_key === agent.id)
-  );
-
-  const handleUnbind = async (channelType: string) => {
-    setOperating(true);
-    setMessage(null);
-    try {
-      const result = await invoke<StepResult>("update_agent_channel_binding", {
-        agentId: agent.id,
-        channelType,
-        accountKey: agent.id,
-        action: "unbind",
-      });
-      setMessage({ type: result.success ? "success" : "error", text: result.message });
-      if (result.success) load();
-    } catch (e) {
-      setMessage({ type: "error", text: `${e}` });
+  for (const ch of channels) {
+    const agentBindings = ch.bindings.filter((b) => b.agent_id === agent.id);
+    if (agentBindings.length > 0) {
+      for (const b of agentBindings) {
+        myBindings.push({ channel: ch.channel_type, binding: b });
+      }
+    } else {
+      otherChannels.push(ch);
     }
-    setOperating(false);
-  };
-
-  const handleBind = async (channelType: string, accountKey: string) => {
-    setOperating(true);
-    setMessage(null);
-    try {
-      const result = await invoke<StepResult>("update_agent_channel_binding", {
-        agentId: agent.id,
-        channelType,
-        accountKey,
-        action: "bind",
-      });
-      setMessage({ type: result.success ? "success" : "error", text: result.message });
-      if (result.success) load();
-    } catch (e) {
-      setMessage({ type: "error", text: `${e}` });
-    }
-    setOperating(false);
-  };
+  }
 
   if (loading) {
     return (
@@ -587,40 +558,27 @@ function ChannelsTab({ agent }: { agent: MergedAgent }) {
 
   return (
     <div className="p-6 space-y-6">
-      {message && (
-        <div className={`p-3 rounded-lg text-sm ${
-          message.type === "success"
-            ? "bg-green-50 border border-green-200 text-green-700"
-            : "bg-red-50 border border-red-200 text-red-700"
-        }`}>
-          {message.text}
-        </div>
-      )}
-
       {/* Bound channels */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">已绑定渠道</h3>
-        {boundChannels.length === 0 ? (
+        {myBindings.length === 0 ? (
           <p className="text-sm text-gray-400">暂无绑定渠道</p>
         ) : (
           <div className="space-y-2">
-            {boundChannels.map((ch) => {
-              const acct = ch.accounts.find((a) => a.account_key === agent.id);
+            {myBindings.map((item, idx) => {
+              const acct = channels
+                .find((c) => c.channel_type === item.channel)
+                ?.accounts.find((a) => a.account_key === item.binding.account_id);
               return (
-                <div key={ch.channel_type} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <span className="text-sm font-medium text-gray-800">{ch.channel_type}</span>
+                <div key={`${item.channel}-${idx}`} className="flex items-center justify-between p-3 bg-green-50 border border-green-100 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-gray-800 capitalize">{item.channel}</span>
+                    <span className="text-xs text-gray-500">{item.binding.match_details}</span>
                     {acct?.bot_token_preview && (
-                      <span className="ml-2 text-xs text-gray-400 font-mono">{acct.bot_token_preview}</span>
+                      <span className="text-xs text-gray-400 font-mono">{acct.bot_token_preview}</span>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleUnbind(ch.channel_type)}
-                    disabled={operating}
-                    className="text-xs px-3 py-1.5 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
-                  >
-                    解绑
-                  </button>
+                  <span className="text-xs text-green-600 font-medium">已绑定</span>
                 </div>
               );
             })}
@@ -628,34 +586,20 @@ function ChannelsTab({ agent }: { agent: MergedAgent }) {
         )}
       </div>
 
-      {/* Available channels to bind */}
-      {unboundChannels.length > 0 && (
+      {/* Other channels (not bound to this agent) */}
+      {otherChannels.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">可绑定渠道</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">其他渠道</h3>
           <div className="space-y-2">
-            {unboundChannels.map((ch) => (
+            {otherChannels.map((ch) => (
               <div key={ch.channel_type} className="p-3 bg-gray-50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-800">{ch.channel_type}</span>
-                </div>
-                <div className="space-y-1">
-                  {ch.accounts.map((acct) => (
-                    <div key={acct.account_key} className="flex items-center justify-between pl-3">
-                      <span className="text-xs text-gray-600">
-                        {acct.account_key}
-                        {acct.bot_token_preview && (
-                          <span className="ml-1 text-gray-400 font-mono">{acct.bot_token_preview}</span>
-                        )}
-                      </span>
-                      <button
-                        onClick={() => handleBind(ch.channel_type, acct.account_key)}
-                        disabled={operating}
-                        className="text-xs px-2.5 py-1 rounded border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
-                      >
-                        绑定到此 Agent
-                      </button>
-                    </div>
-                  ))}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-800 capitalize">{ch.channel_type}</span>
+                  <span className="text-xs text-gray-400">
+                    {ch.bindings.length > 0
+                      ? `绑定到: ${ch.bindings.map((b) => b.agent_id).join(", ")}`
+                      : "未绑定"}
+                  </span>
                 </div>
               </div>
             ))}
@@ -666,6 +610,10 @@ function ChannelsTab({ agent }: { agent: MergedAgent }) {
       {channels.length === 0 && (
         <p className="text-sm text-gray-400 text-center">尚未配置任何渠道</p>
       )}
+
+      <p className="text-xs text-gray-400 text-center">
+        渠道绑定通过 openclaw.json 的 bindings 配置管理
+      </p>
     </div>
   );
 }
@@ -1029,7 +977,7 @@ export function Agents() {
         </div>
 
         {/* Tab content */}
-        <div className="flex-1 overflow-auto bg-gray-50">
+        <div className={`flex-1 ${activeTab === "chat" ? "flex flex-col" : "overflow-auto"} bg-gray-50`}>
           {activeTab === "chat" && dashboardUrl && (
             <ChatTab agent={selectedAgent} dashboardUrl={dashboardUrl} />
           )}

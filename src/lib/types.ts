@@ -102,9 +102,16 @@ export interface ChannelAccountInfo {
   bot_token_preview: string;
 }
 
+export interface ChannelBindingInfo {
+  agent_id: string;
+  account_id: string;
+  match_details: string;
+}
+
 export interface ChannelTypeInfo {
   channel_type: string;
   accounts: ChannelAccountInfo[];
+  bindings: ChannelBindingInfo[];
   extra: Record<string, unknown>;
 }
 
