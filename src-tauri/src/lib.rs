@@ -46,48 +46,132 @@ struct StepResult {
     logs: Vec<String>,
 }
 
+fn path_separator() -> &'static str {
+    if cfg!(target_os = "windows") { ";" } else { ":" }
+}
+
+fn get_home_or_userprofile() -> String {
+    if cfg!(target_os = "windows") {
+        std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_default()
+    } else {
+        std::env::var("HOME").unwrap_or_default()
+    }
+}
+
+/// On Windows, read the current system+user PATH from the registry so that
+/// newly installed programs (e.g. Node.js MSI) are visible without restarting
+/// the Tauri process.
+#[cfg(target_os = "windows")]
+fn refresh_windows_path() -> Option<String> {
+    fn reg_query(key: &str, value: &str) -> Option<String> {
+        Command::new("reg")
+            .args(["query", key, "/v", value])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    let out = String::from_utf8_lossy(&o.stdout).to_string();
+                    // Format: "    Path    REG_EXPAND_SZ    <value>"
+                    out.lines()
+                        .find(|l| l.contains("REG_"))
+                        .and_then(|l| l.splitn(3, "    ").nth(2))
+                        .map(|v| {
+                            // strip the type prefix (REG_EXPAND_SZ  or REG_SZ  )
+                            v.split_once("    ").map(|(_, p)| p).unwrap_or(v).trim().to_string()
+                        })
+                } else {
+                    None
+                }
+            })
+    }
+    let sys = reg_query(
+        r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+        "Path",
+    ).unwrap_or_default();
+    let usr = reg_query(r"HKCU\Environment", "Path").unwrap_or_default();
+    if sys.is_empty() && usr.is_empty() {
+        None
+    } else {
+        Some(format!("{};{}", usr, sys))
+    }
+}
+
 fn get_enriched_path() -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = get_home_or_userprofile();
     let system_path = std::env::var("PATH").unwrap_or_default();
-    
-    // Collect extra paths: nvm, homebrew, usr/local, cargo
+    let sep = path_separator();
+
     let mut extra: Vec<String> = vec![];
-    
-    // nvm: scan for installed node versions
-    let nvm_dir = format!("{home}/.nvm/versions/node");
-    if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
-        let mut versions: Vec<String> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-            .map(|e| format!("{}/bin", e.path().display()))
-            .collect();
-        // Sort descending so latest version comes first
-        versions.sort_by(|a, b| b.cmp(a));
-        extra.extend(versions);
+
+    if cfg!(target_os = "windows") {
+        // On Windows, pull fresh PATH from registry (picks up MSI installs)
+        #[cfg(target_os = "windows")]
+        if let Some(reg_path) = refresh_windows_path() {
+            for dir in reg_path.split(';') {
+                let d = dir.trim().to_string();
+                if !d.is_empty() {
+                    extra.push(d);
+                }
+            }
+        }
+
+        // Common Windows Node.js locations
+        let program_files = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+        let appdata = std::env::var("APPDATA").unwrap_or_default();
+        extra.push(format!(r"{}\nodejs", program_files));
+        if !appdata.is_empty() {
+            extra.push(format!(r"{}\npm", appdata));
+        }
+        // nvm-windows
+        let nvm_home = std::env::var("NVM_HOME").unwrap_or_default();
+        let nvm_symlink = std::env::var("NVM_SYMLINK").unwrap_or_default();
+        if !nvm_symlink.is_empty() {
+            extra.push(nvm_symlink);
+        }
+        if !nvm_home.is_empty() {
+            extra.push(nvm_home);
+        }
+    } else {
+        // Unix: nvm, fnm, homebrew, usr/local, cargo
+        let nvm_dir = format!("{home}/.nvm/versions/node");
+        if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
+            let mut versions: Vec<String> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .map(|e| format!("{}/bin", e.path().display()))
+                .collect();
+            versions.sort_by(|a, b| b.cmp(a));
+            extra.extend(versions);
+        }
+
+        let fnm_dir = format!("{home}/.fnm/current/bin");
+        if std::path::Path::new(&fnm_dir).exists() {
+            extra.push(fnm_dir);
+        }
+
+        extra.extend([
+            "/opt/homebrew/bin".to_string(),
+            "/usr/local/bin".to_string(),
+            format!("{home}/.cargo/bin"),
+        ]);
     }
-    
-    // fnm
-    let fnm_dir = format!("{home}/.fnm/current/bin");
-    if std::path::Path::new(&fnm_dir).exists() {
-        extra.push(fnm_dir);
-    }
-    
-    // Common paths
-    extra.extend([
-        "/opt/homebrew/bin".to_string(),
-        "/usr/local/bin".to_string(),
-        format!("{home}/.cargo/bin"),
-    ]);
-    
+
     let mut parts: Vec<&str> = extra.iter().map(|s| s.as_str()).collect();
     parts.push(&system_path);
-    parts.join(":")
+    parts.join(sep)
 }
 
 fn run_cmd(cmd: &str, args: &[&str]) -> Result<String, String> {
-    Command::new(cmd)
-        .env("HOME", std::env::var("HOME").unwrap_or_default())
-        .env("PATH", get_enriched_path())
+    let mut command = Command::new(cmd);
+    command.env("PATH", get_enriched_path());
+    if cfg!(target_os = "windows") {
+        command.env("USERPROFILE", get_home_or_userprofile());
+    } else {
+        command.env("HOME", get_home_or_userprofile());
+    }
+    command
         .args(args)
         .output()
         .map_err(|e| format!("执行命令失败: {} - {}", cmd, e))
@@ -106,7 +190,14 @@ fn run_cmd(cmd: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn run_cmd_combined(cmd: &str, args: &[&str]) -> Result<String, String> {
-    Command::new(cmd)
+    let mut command = Command::new(cmd);
+    command.env("PATH", get_enriched_path());
+    if cfg!(target_os = "windows") {
+        command.env("USERPROFILE", get_home_or_userprofile());
+    } else {
+        command.env("HOME", get_home_or_userprofile());
+    }
+    command
         .args(args)
         .output()
         .map_err(|e| format!("执行命令失败: {} - {}", cmd, e))
@@ -124,9 +215,12 @@ fn run_cmd_combined(cmd: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn get_home_dir() -> Result<String, String> {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "无法确定用户主目录".to_string())
+    let home = get_home_or_userprofile();
+    if home.is_empty() {
+        Err("无法确定用户主目录".to_string())
+    } else {
+        Ok(home)
+    }
 }
 
 fn node_arch() -> &'static str {
@@ -525,10 +619,11 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
 #[tauri::command]
 fn install_step_openclaw(config: InstallConfig, state: State<AppState>) -> StepResult {
     let mut logs = Vec::new();
+    let npm = find_npm();
 
     // Set npm registry
     logs.push(format!("设置 npm 镜像: {}", config.npm_registry));
-    match run_cmd("npm", &["config", "set", "registry", &config.npm_registry]) {
+    match run_cmd(&npm, &["config", "set", "registry", &config.npm_registry]) {
         Ok(_) => logs.push("npm 镜像设置完成".to_string()),
         Err(e) => logs.push(format!("设置镜像失败（继续安装）: {}", e)),
     }
@@ -540,8 +635,8 @@ fn install_step_openclaw(config: InstallConfig, state: State<AppState>) -> StepR
         format!("openclaw@{}", config.openclaw_version)
     };
 
-    logs.push(format!("安装 {}...", version_arg));
-    match run_cmd_combined("npm", &["install", "-g", &version_arg]) {
+    logs.push(format!("安装 {} (npm={})...", version_arg, npm));
+    match run_cmd_combined(&npm, &["install", "-g", &version_arg]) {
         Ok(output) => {
             if !output.is_empty() {
                 for line in output.lines() {
@@ -852,32 +947,39 @@ struct UpdateInfo {
 
 
 fn find_openclaw() -> String {
-    // Try common paths for openclaw
-    let candidates = [
-        // Direct PATH lookup
-        "openclaw",
-        // npm global installs
-        "/usr/local/bin/openclaw",
-        "/opt/homebrew/bin/openclaw",
-    ];
+    let enriched = get_enriched_path();
+    let sep = path_separator();
 
-    // Also check if there's a node/nvm path
-    if let Ok(home) = std::env::var("HOME") {
-        let nvm_paths = [
-            format!("{home}/.nvm/versions/node/v22.22.0/bin/openclaw"),
-            format!("{home}/.nvm/versions/node/v20.19.2/bin/openclaw"),
-        ];
-        for p in &nvm_paths {
-            if std::path::Path::new(p).exists() {
-                return p.clone();
-            }
+    // Scan enriched PATH for openclaw binary
+    for dir in enriched.split(sep) {
+        let candidate = if cfg!(target_os = "windows") {
+            format!(r"{}\openclaw.cmd", dir)
+        } else {
+            format!("{}/openclaw", dir)
+        };
+        if std::path::Path::new(&candidate).exists() {
+            return candidate;
         }
     }
 
-    // Try `which openclaw`
-    if let Ok(output) = Command::new("which").arg("openclaw").output() {
+    // Try `which`/`where`
+    let (which_cmd, which_args) = if cfg!(target_os = "windows") {
+        ("where", vec!["openclaw"])
+    } else {
+        ("which", vec!["openclaw"])
+    };
+    if let Ok(output) = Command::new(which_cmd)
+        .args(&which_args)
+        .env("PATH", &enriched)
+        .output()
+    {
         if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if !path.is_empty() {
                 return path;
             }
@@ -885,30 +987,9 @@ fn find_openclaw() -> String {
     }
 
     // Also try npx
-    if let Ok(output) = Command::new("npx").args(["which", "openclaw"]).output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return path;
-            }
-        }
-    }
-
-    "openclaw".to_string()
-}
-
-fn find_npm() -> String {
-    let enriched = get_enriched_path();
-    for dir in enriched.split(':') {
-        let candidate = format!("{dir}/npm");
-        if std::path::Path::new(&candidate).exists() {
-            return candidate;
-        }
-    }
-
-    // Try `which npm` with enriched PATH
-    if let Ok(output) = Command::new("which")
-        .arg("npm")
+    let npx = if cfg!(target_os = "windows") { "npx.cmd" } else { "npx" };
+    if let Ok(output) = Command::new(npx)
+        .args(["which", "openclaw"])
         .env("PATH", &enriched)
         .output()
     {
@@ -920,7 +1001,57 @@ fn find_npm() -> String {
         }
     }
 
-    "npm".to_string()
+    if cfg!(target_os = "windows") {
+        "openclaw.cmd".to_string()
+    } else {
+        "openclaw".to_string()
+    }
+}
+
+fn find_npm() -> String {
+    let enriched = get_enriched_path();
+    let sep = path_separator();
+
+    for dir in enriched.split(sep) {
+        let candidate = if cfg!(target_os = "windows") {
+            format!(r"{}\npm.cmd", dir)
+        } else {
+            format!("{}/npm", dir)
+        };
+        if std::path::Path::new(&candidate).exists() {
+            return candidate;
+        }
+    }
+
+    // Fallback: try `which`/`where`
+    let (which_cmd, which_args) = if cfg!(target_os = "windows") {
+        ("where", vec!["npm"])
+    } else {
+        ("which", vec!["npm"])
+    };
+    if let Ok(output) = Command::new(which_cmd)
+        .args(&which_args)
+        .env("PATH", &enriched)
+        .output()
+    {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+
+    if cfg!(target_os = "windows") {
+        "npm.cmd".to_string()
+    } else {
+        "npm".to_string()
+    }
 }
 
 fn run_openclaw_cmd(cmd: &str, subcmd: &str) -> StepResult {
