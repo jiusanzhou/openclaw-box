@@ -58,7 +58,7 @@ export function ManagementPanel({ remoteConfig, onReset }: ManagementPanelProps)
           >
             🔗 打开控制台
           </button>
-          <div className="text-gray-400 text-xs px-1">v0.2.0</div>
+          <div className="text-gray-400 text-xs px-1">v{__APP_VERSION__}</div>
         </div>
       </div>
 

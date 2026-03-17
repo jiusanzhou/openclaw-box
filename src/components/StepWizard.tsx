@@ -102,7 +102,7 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
             </div>
           ))}
         </nav>
-        <div className="text-indigo-300 text-xs px-1">v0.1.0</div>
+        <div className="text-indigo-300 text-xs px-1">v{__APP_VERSION__}</div>
       </div>
 
       {/* Content */}
