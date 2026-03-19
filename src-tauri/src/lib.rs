@@ -124,6 +124,8 @@ fn get_enriched_path() -> String {
         if !appdata.is_empty() {
             extra.push(format!(r"{}\npm", appdata));
         }
+        // User --prefix install directory for openclaw
+        extra.push(format!(r"{}\openclaw-global", home));
         // nvm-windows
         let nvm_home = std::env::var("NVM_HOME").unwrap_or_default();
         let nvm_symlink = std::env::var("NVM_SYMLINK").unwrap_or_default();
@@ -312,64 +314,76 @@ fn check_system() -> SystemInfo {
 }
 
 #[tauri::command]
-fn install_step_check_env(config: InstallConfig, state: State<AppState>) -> StepResult {
-    let mut logs = Vec::new();
+async fn install_step_check_env(config: InstallConfig, state: State<'_, AppState>) -> Result<StepResult, String> {
+    let result = tokio::task::spawn_blocking(move || {
+        let mut logs = Vec::new();
 
-    // Check Node.js
-    logs.push("检查 Node.js...".to_string());
-    match run_cmd("node", &["--version"]) {
-        Ok(v) => {
-            logs.push(format!("Node.js 版本: {}", v));
-            let installed = v.trim_start_matches('v');
-            if compare_versions(installed, &config.node_version) >= 0 {
-                logs.push(format!(
-                    "Node.js 版本满足要求 (≥{})",
-                    config.node_version
-                ));
-            } else {
-                logs.push(format!(
-                    "Node.js 版本过低，需要 ≥{}，将在下一步安装",
-                    config.node_version
-                ));
+        // Check Node.js
+        logs.push("检查 Node.js...".to_string());
+        match run_cmd("node", &["--version"]) {
+            Ok(v) => {
+                logs.push(format!("Node.js 版本: {}", v));
+                let installed = v.trim_start_matches('v');
+                if compare_versions(installed, &config.node_version) >= 0 {
+                    logs.push(format!(
+                        "Node.js 版本满足要求 (≥{})",
+                        config.node_version
+                    ));
+                } else {
+                    logs.push(format!(
+                        "Node.js 版本过低，需要 ≥{}，将在下一步安装",
+                        config.node_version
+                    ));
+                }
+            }
+            Err(_) => {
+                logs.push("未检测到 Node.js，将在下一步安装".to_string());
             }
         }
-        Err(_) => {
-            logs.push("未检测到 Node.js，将在下一步安装".to_string());
+
+        // Check npm
+        logs.push("检查 npm...".to_string());
+        match run_cmd("npm", &["--version"]) {
+            Ok(v) => logs.push(format!("npm 版本: {}", v)),
+            Err(_) => logs.push("未检测到 npm（将随 Node.js 一起安装）".to_string()),
         }
-    }
 
-    // Check npm
-    logs.push("检查 npm...".to_string());
-    match run_cmd("npm", &["--version"]) {
-        Ok(v) => logs.push(format!("npm 版本: {}", v)),
-        Err(_) => logs.push("未检测到 npm（将随 Node.js 一起安装）".to_string()),
-    }
+        // Check network
+        let registry_host = config
+            .npm_registry
+            .replace("https://", "")
+            .replace("http://", "")
+            .trim_end_matches('/')
+            .to_string();
+        logs.push(format!("检查网络连接 ({})...", registry_host));
+        if check_network(&registry_host, 443) {
+            logs.push("网络连接正常".to_string());
+        } else {
+            logs.push("警告：无法连接到镜像站，安装可能会失败".to_string());
+        }
 
-    // Check network
-    let registry_host = config
-        .npm_registry
-        .replace("https://", "")
-        .replace("http://", "")
-        .trim_end_matches('/')
-        .to_string();
-    logs.push(format!("检查网络连接 ({})...", registry_host));
-    if check_network(&registry_host, 443) {
-        logs.push("网络连接正常".to_string());
-    } else {
-        logs.push("警告：无法连接到镜像站，安装可能会失败".to_string());
-    }
+        StepResult {
+            success: true,
+            message: "环境检查完成".to_string(),
+            logs,
+        }
+    }).await.map_err(|e| format!("任务执行失败: {}", e))?;
 
-    state.logs.lock().unwrap().extend(logs.clone());
-
-    StepResult {
-        success: true,
-        message: "环境检查完成".to_string(),
-        logs,
-    }
+    state.logs.lock().unwrap().extend(result.logs.clone());
+    Ok(result)
 }
 
 #[tauri::command]
-fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResult {
+async fn install_step_node(config: InstallConfig, state: State<'_, AppState>) -> Result<StepResult, String> {
+    let result = tokio::task::spawn_blocking(move || {
+        install_step_node_sync(config)
+    }).await.map_err(|e| format!("任务执行失败: {}", e))?;
+
+    state.logs.lock().unwrap().extend(result.logs.clone());
+    Ok(result)
+}
+
+fn install_step_node_sync(config: InstallConfig) -> StepResult {
     let mut logs = Vec::new();
 
     // Check if Node.js is already sufficient
@@ -377,7 +391,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
         let installed = v.trim_start_matches('v');
         if compare_versions(installed, &config.node_version) >= 0 {
             logs.push(format!("Node.js {} 已安装，跳过安装步骤", v));
-            state.logs.lock().unwrap().extend(logs.clone());
             return StepResult {
                 success: true,
                 message: format!("Node.js {} 已满足要求", v),
@@ -403,7 +416,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
                 Ok(_) => logs.push("下载完成".to_string()),
                 Err(e) => {
                     logs.push(format!("下载失败: {}", e));
-                    state.logs.lock().unwrap().extend(logs.clone());
                     return StepResult {
                         success: false,
                         message: format!("下载 Node.js 失败: {}", e),
@@ -430,7 +442,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
                 Ok(_) => logs.push("Node.js 安装完成".to_string()),
                 Err(e) => {
                     logs.push(format!("安装失败: {}", e));
-                    state.logs.lock().unwrap().extend(logs.clone());
                     return StepResult {
                         success: false,
                         message: format!("安装 Node.js 失败: {}", e),
@@ -451,7 +462,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
                 Ok(_) => logs.push("下载完成".to_string()),
                 Err(e) => {
                     logs.push(format!("下载失败: {}", e));
-                    state.logs.lock().unwrap().extend(logs.clone());
                     return StepResult {
                         success: false,
                         message: format!("下载 Node.js 失败: {}", e),
@@ -464,7 +474,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
                 Ok(h) => h,
                 Err(e) => {
                     logs.push(format!("错误: {}", e));
-                    state.logs.lock().unwrap().extend(logs.clone());
                     return StepResult {
                         success: false,
                         message: e,
@@ -501,7 +510,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
                         Ok(_) => logs.push("解压到 /usr/local 完成".to_string()),
                         Err(e2) => {
                             logs.push(format!("安装失败: {}", e2));
-                            state.logs.lock().unwrap().extend(logs.clone());
                             return StepResult {
                                 success: false,
                                 message: format!("安装 Node.js 失败: {}", e2),
@@ -534,7 +542,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
                     }
                     Err(e) => {
                         logs.push(format!("WSL 安装失败: {}", e));
-                        state.logs.lock().unwrap().extend(logs.clone());
                         return StepResult {
                             success: false,
                             message: format!("WSL 安装 Node.js 失败: {}", e),
@@ -555,7 +562,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
                     Ok(_) => logs.push("下载完成".to_string()),
                     Err(e) => {
                         logs.push(format!("下载失败: {}", e));
-                        state.logs.lock().unwrap().extend(logs.clone());
                         return StepResult {
                             success: false,
                             message: format!("下载 Node.js 失败: {}", e),
@@ -569,7 +575,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
                     Ok(_) => logs.push("Node.js 安装完成".to_string()),
                     Err(e) => {
                         logs.push(format!("安装失败: {}", e));
-                        state.logs.lock().unwrap().extend(logs.clone());
                         return StepResult {
                             success: false,
                             message: format!("安装 Node.js 失败: {}", e),
@@ -583,7 +588,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
         }
         _ => {
             logs.push(format!("不支持的操作系统: {}", os_name));
-            state.logs.lock().unwrap().extend(logs.clone());
             return StepResult {
                 success: false,
                 message: format!("不支持的操作系统: {}", os_name),
@@ -597,7 +601,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
     match run_cmd("node", &["--version"]) {
         Ok(v) => {
             logs.push(format!("Node.js {} 安装成功", v));
-            state.logs.lock().unwrap().extend(logs.clone());
             StepResult {
                 success: true,
                 message: format!("Node.js {} 安装成功", v),
@@ -606,7 +609,6 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
         }
         Err(_) => {
             logs.push("安装后无法验证 Node.js，可能需要重启终端".to_string());
-            state.logs.lock().unwrap().extend(logs.clone());
             StepResult {
                 success: true,
                 message: "Node.js 已安装（可能需要重启终端生效）".to_string(),
@@ -617,7 +619,16 @@ fn install_step_node(config: InstallConfig, state: State<AppState>) -> StepResul
 }
 
 #[tauri::command]
-fn install_step_openclaw(config: InstallConfig, state: State<AppState>) -> StepResult {
+async fn install_step_openclaw(config: InstallConfig, state: State<'_, AppState>) -> Result<StepResult, String> {
+    let result = tokio::task::spawn_blocking(move || {
+        install_step_openclaw_sync(config)
+    }).await.map_err(|e| format!("任务执行失败: {}", e))?;
+
+    state.logs.lock().unwrap().extend(result.logs.clone());
+    Ok(result)
+}
+
+fn install_step_openclaw_sync(config: InstallConfig) -> StepResult {
     let mut logs = Vec::new();
     let npm = find_npm();
 
@@ -636,69 +647,117 @@ fn install_step_openclaw(config: InstallConfig, state: State<AppState>) -> StepR
     };
 
     logs.push(format!("安装 {} (npm={})...", version_arg, npm));
-    match run_cmd_combined(&npm, &["install", "-g", &version_arg]) {
+    let global_install_ok = match run_cmd_combined(&npm, &["install", "-g", &version_arg]) {
         Ok(output) => {
             if !output.is_empty() {
                 for line in output.lines() {
                     logs.push(line.to_string());
                 }
             }
+            true
         }
         Err(e) => {
-            logs.push(format!("安装失败: {}", e));
-            state.logs.lock().unwrap().extend(logs.clone());
-            return StepResult {
-                success: false,
-                message: format!("安装 OpenClaw 失败: {}", e),
-                logs,
-            };
+            logs.push(format!("全局安装失败: {}", e));
+            false
         }
+    };
+
+    // On Windows, if global install failed, try --prefix to user directory
+    if !global_install_ok && cfg!(target_os = "windows") {
+        let home = get_home_or_userprofile();
+        let prefix_dir = format!("{}\\openclaw-global", home);
+        logs.push(format!("尝试使用 --prefix 安装到用户目录: {}", prefix_dir));
+        let _ = std::fs::create_dir_all(&prefix_dir);
+        match run_cmd_combined(&npm, &["install", "-g", &version_arg, "--prefix", &prefix_dir]) {
+            Ok(output) => {
+                if !output.is_empty() {
+                    for line in output.lines() {
+                        logs.push(line.to_string());
+                    }
+                }
+                logs.push("用户目录安装完成".to_string());
+            }
+            Err(e2) => {
+                logs.push(format!("用户目录安装也失败: {}", e2));
+                logs.push("可能的原因:".to_string());
+                logs.push("  1. npm 未正确安装或不在 PATH 中".to_string());
+                logs.push("  2. 网络连接问题，无法下载包".to_string());
+                logs.push("  3. 权限不足，请尝试以管理员身份运行".to_string());
+                logs.push("建议: 手动打开终端执行 npm install -g openclaw".to_string());
+                return StepResult {
+                    success: false,
+                    message: format!("安装 OpenClaw 失败: {}。请尝试手动安装: npm install -g openclaw", e2),
+                    logs,
+                };
+            }
+        }
+    } else if !global_install_ok {
+        logs.push("建议: 手动打开终端执行 sudo npm install -g openclaw".to_string());
+        return StepResult {
+            success: false,
+            message: "安装 OpenClaw 失败。请尝试手动安装: sudo npm install -g openclaw".to_string(),
+            logs,
+        };
     }
 
     // Verify
     logs.push("验证 OpenClaw 安装...".to_string());
-    match run_cmd("openclaw", &["--version"]) {
+    let openclaw_path = find_openclaw();
+    match run_cmd(&openclaw_path, &["--version"]) {
         Ok(v) => {
             logs.push(format!("OpenClaw {} 安装成功", v));
-            state.logs.lock().unwrap().extend(logs.clone());
             StepResult {
                 success: true,
                 message: format!("OpenClaw {} 安装成功", v),
                 logs,
             }
         }
-        Err(_) => match run_cmd("npx", &["openclaw", "--version"]) {
-            Ok(v) => {
-                logs.push(format!("OpenClaw {} 可通过 npx 使用", v));
-                state.logs.lock().unwrap().extend(logs.clone());
-                StepResult {
-                    success: true,
-                    message: format!("OpenClaw {} 安装成功", v),
-                    logs,
+        Err(_) => {
+            // Try npx as fallback
+            let npx = if cfg!(target_os = "windows") { "npx.cmd" } else { "npx" };
+            match run_cmd(npx, &["openclaw", "--version"]) {
+                Ok(v) => {
+                    logs.push(format!("OpenClaw {} 可通过 npx 使用", v));
+                    StepResult {
+                        success: true,
+                        message: format!("OpenClaw {} 安装成功", v),
+                        logs,
+                    }
+                }
+                Err(e) => {
+                    logs.push(format!("验证失败: {}", e));
+                    if cfg!(target_os = "windows") {
+                        logs.push("Windows 提示: 可能需要重新打开终端或重启应用以刷新 PATH".to_string());
+                        logs.push("也可尝试手动运行: npx openclaw --version".to_string());
+                    }
+                    StepResult {
+                        success: false,
+                        message: "OpenClaw 安装验证失败，请尝试重启应用后重试".to_string(),
+                        logs,
+                    }
                 }
             }
-            Err(e) => {
-                logs.push(format!("验证失败: {}", e));
-                state.logs.lock().unwrap().extend(logs.clone());
-                StepResult {
-                    success: false,
-                    message: "OpenClaw 安装验证失败".to_string(),
-                    logs,
-                }
-            }
-        },
+        }
     }
 }
 
 #[tauri::command]
-fn install_step_configure(config: InstallConfig, state: State<AppState>) -> StepResult {
+async fn install_step_configure(config: InstallConfig, state: State<'_, AppState>) -> Result<StepResult, String> {
+    let result = tokio::task::spawn_blocking(move || {
+        install_step_configure_sync(config)
+    }).await.map_err(|e| format!("任务执行失败: {}", e))?;
+
+    state.logs.lock().unwrap().extend(result.logs.clone());
+    Ok(result)
+}
+
+fn install_step_configure_sync(config: InstallConfig) -> StepResult {
     let mut logs = Vec::new();
 
     let home = match get_home_dir() {
         Ok(h) => h,
         Err(e) => {
             logs.push(format!("错误: {}", e));
-            state.logs.lock().unwrap().extend(logs.clone());
             return StepResult {
                 success: false,
                 message: e,
@@ -711,7 +770,6 @@ fn install_step_configure(config: InstallConfig, state: State<AppState>) -> Step
     logs.push(format!("创建配置目录: {}", config_dir));
     if let Err(e) = std::fs::create_dir_all(&config_dir) {
         logs.push(format!("创建目录失败: {}", e));
-        state.logs.lock().unwrap().extend(logs.clone());
         return StepResult {
             success: false,
             message: format!("创建配置目录失败: {}", e),
@@ -756,7 +814,6 @@ fn install_step_configure(config: InstallConfig, state: State<AppState>) -> Step
         }
         Err(e) => {
             logs.push(format!("写入配置失败: {}", e));
-            state.logs.lock().unwrap().extend(logs.clone());
             return StepResult {
                 success: false,
                 message: format!("写入配置文件失败: {}", e),
@@ -765,7 +822,6 @@ fn install_step_configure(config: InstallConfig, state: State<AppState>) -> Step
         }
     }
 
-    state.logs.lock().unwrap().extend(logs.clone());
     StepResult {
         success: true,
         message: "配置文件已写入".to_string(),
@@ -774,7 +830,16 @@ fn install_step_configure(config: InstallConfig, state: State<AppState>) -> Step
 }
 
 #[tauri::command]
-fn install_step_start(config: InstallConfig, state: State<AppState>) -> StepResult {
+async fn install_step_start(config: InstallConfig, state: State<'_, AppState>) -> Result<StepResult, String> {
+    let result = tokio::task::spawn_blocking(move || {
+        install_step_start_sync(config)
+    }).await.map_err(|e| format!("任务执行失败: {}", e))?;
+
+    state.logs.lock().unwrap().extend(result.logs.clone());
+    Ok(result)
+}
+
+fn install_step_start_sync(config: InstallConfig) -> StepResult {
     let mut logs = Vec::new();
 
     logs.push("启动 OpenClaw Gateway...".to_string());
@@ -803,7 +868,6 @@ fn install_step_start(config: InstallConfig, state: State<AppState>) -> StepResu
                         });
                         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                         logs.push(format!("Gateway 启动失败: {}", stderr));
-                        state.logs.lock().unwrap().extend(logs.clone());
                         return StepResult {
                             success: false,
                             message: "Gateway 启动失败".to_string(),
@@ -836,7 +900,6 @@ fn install_step_start(config: InstallConfig, state: State<AppState>) -> StepResu
                 }
                 Err(e2) => {
                     logs.push(format!("npx 启动也失败: {}", e2));
-                    state.logs.lock().unwrap().extend(logs.clone());
                     return StepResult {
                         success: false,
                         message: format!("启动 Gateway 失败: {}", e2),
@@ -853,7 +916,6 @@ fn install_step_start(config: InstallConfig, state: State<AppState>) -> StepResu
     logs.push(format!("渠道类型: {}", config.channel_type));
     logs.push("服务启动成功！".to_string());
 
-    state.logs.lock().unwrap().extend(logs.clone());
     StepResult {
         success: true,
         message: format!("服务已启动: {}", gateway_url),
@@ -950,15 +1012,34 @@ fn find_openclaw() -> String {
     let enriched = get_enriched_path();
     let sep = path_separator();
 
-    // Scan enriched PATH for openclaw binary
-    for dir in enriched.split(sep) {
-        let candidate = if cfg!(target_os = "windows") {
-            format!(r"{}\openclaw.cmd", dir)
-        } else {
-            format!("{}/openclaw", dir)
-        };
+    // On Windows, also check user --prefix install directory
+    if cfg!(target_os = "windows") {
+        let home = get_home_or_userprofile();
+        let prefix_bin = format!(r"{}\openclaw-global", home);
+        let candidate = format!(r"{}\openclaw.cmd", prefix_bin);
         if std::path::Path::new(&candidate).exists() {
             return candidate;
+        }
+        let candidate_exe = format!(r"{}\openclaw.exe", prefix_bin);
+        if std::path::Path::new(&candidate_exe).exists() {
+            return candidate_exe;
+        }
+    }
+
+    // Scan enriched PATH for openclaw binary
+    for dir in enriched.split(sep) {
+        if cfg!(target_os = "windows") {
+            for ext in &["openclaw.cmd", "openclaw.exe"] {
+                let candidate = format!(r"{}\{}", dir, ext);
+                if std::path::Path::new(&candidate).exists() {
+                    return candidate;
+                }
+            }
+        } else {
+            let candidate = format!("{}/openclaw", dir);
+            if std::path::Path::new(&candidate).exists() {
+                return candidate;
+            }
         }
     }
 
@@ -1013,13 +1094,18 @@ fn find_npm() -> String {
     let sep = path_separator();
 
     for dir in enriched.split(sep) {
-        let candidate = if cfg!(target_os = "windows") {
-            format!(r"{}\npm.cmd", dir)
+        if cfg!(target_os = "windows") {
+            for ext in &["npm.cmd", "npm.exe"] {
+                let candidate = format!(r"{}\{}", dir, ext);
+                if std::path::Path::new(&candidate).exists() {
+                    return candidate;
+                }
+            }
         } else {
-            format!("{}/npm", dir)
-        };
-        if std::path::Path::new(&candidate).exists() {
-            return candidate;
+            let candidate = format!("{}/npm", dir);
+            if std::path::Path::new(&candidate).exists() {
+                return candidate;
+            }
         }
     }
 

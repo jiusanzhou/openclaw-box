@@ -54,10 +54,10 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
-      <div className="w-52 bg-indigo-950 text-white p-5 flex flex-col">
+      <div className="w-52 bg-white/80 backdrop-blur-xl border-r border-gray-200 p-5 flex flex-col">
         <div className="mb-6">
-          <h1 className="text-xl font-bold text-white">OpenClaw</h1>
-          <p className="text-indigo-200 text-sm mt-0.5">Box</p>
+          <h1 className="text-xl font-bold text-gray-800">OpenClaw</h1>
+          <p className="text-gray-400 text-sm mt-0.5">Box</p>
         </div>
         <nav className="space-y-1 flex-1">
           {STEPS.map((step, i) => (
@@ -65,10 +65,10 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
               key={step.id}
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors ${
                 step.id === currentStep
-                  ? "bg-indigo-700 text-white"
+                  ? "bg-indigo-50 text-indigo-700 font-semibold"
                   : i < currentIndex
-                    ? "text-indigo-100"
-                    : "text-indigo-200"
+                    ? "text-gray-700"
+                    : "text-gray-400"
               }`}
             >
               <div
@@ -76,8 +76,8 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
                   i < currentIndex
                     ? "bg-green-500 text-white"
                     : step.id === currentStep
-                      ? "bg-white text-indigo-950 font-bold"
-                      : "bg-indigo-800 text-indigo-200"
+                      ? "bg-indigo-600 text-white font-bold"
+                      : "bg-gray-200 text-gray-400"
                 }`}
               >
                 {i < currentIndex ? (
@@ -102,7 +102,7 @@ export function StepWizard({ remoteConfig, onComplete }: StepWizardProps) {
             </div>
           ))}
         </nav>
-        <div className="text-indigo-300 text-xs px-1">v{__APP_VERSION__}</div>
+        <div className="text-gray-400 text-xs px-1">v{__APP_VERSION__}</div>
       </div>
 
       {/* Content */}

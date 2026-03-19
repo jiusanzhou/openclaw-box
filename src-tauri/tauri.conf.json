@@ -1,6 +1,6 @@
 {
   "productName": "OpenClaw Box",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "identifier": "im.zoe.openclaw-box",
   "build": {
     "frontendDist": "../dist",
